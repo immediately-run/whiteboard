@@ -1,120 +1,72 @@
-# immediately.run — starter template
+# Whiteboard
 
-A ready-to-run starter for building apps on
-[immediately.run](https://immediately.run): React + TypeScript + Vite, wired to
-the brand design system, with the project layout immediately.run expects.
+An infinite-canvas collaborative whiteboard where **every canvas object is one
+MDX file** in a shared space — an [immediately.run](https://immediately.run) app.
+Sticky notes, prose, images, video, shapes, and live React components live on a
+zoomable/pannable stage; saved camera **views** chain into guided **journeys**
+that are the headline experience for anyone who opens a read-only share link
+(often on a phone). There is no database and no opaque document format: a board
+is a folder you can read, diff, and edit with any tool — including an agent that
+has never heard of this app.
 
-## Try it instantly
+Specs live in the `immediately-run/docs` repo under `docs/whiteboard-app/`
+(`WHITEBOARD_SPEC.md` is the anchor); this repo is the app.
 
-Try this template on [immediately.run](https://immediately.run/present/github/immediately-run/new-project-template/main/files/src/App.tsx)
+## What's here today
 
-> Using this as a starting point for your own app? After you push to your repo,
-> update the link above to
-> `https://immediately.run/present/github/<owner>/<repo>/<ref>/files/src/App.tsx`.
+The full canvas experience, built faithfully from the Claude Design asset bundle
+and driven by an in-memory demo board (`src/data/seedBoard.ts`) that exercises
+every object kind and degraded state:
 
-## Use this template
+- **Run mode** — pan (drag / wheel / pinch), zoom `[0.02, 8]`, grid/dots/plain
+  backgrounds that track the camera, journeys list + full-screen **playback**
+  (keyboard + tap-zone driven, with a reduced-motion cut).
+- **Edit mode** — select / multi-select / marquee, move, resize + rotate handles,
+  drag-to-connect anchors, an inspector (title, tags, note color, geometry,
+  z-order, lock/hide), quick-create on double-click, delete with 10s undo.
+- **The built-in component library** (`src/components/library/`) — `StickyNote`,
+  prose, `Label`, `Frame`, `Shape`, `Img`, `Video`, the click-to-load `Embed`
+  security surface, and the component-error chip.
+- **Connections** — directed arrows / lines with auto edge anchors, midpoint
+  labels, and dangling-edge warnings.
+- **State screens** — board chooser, the four empty/forbidden states, and the
+  concurrent-edit (LWW) + role-downgrade toasts (try the "Demo states" menu,
+  bottom-left).
+- **Mobile** — first-class run mode + playback; edit is select/move/inspector.
 
-1. Create a new repo from this template (or copy the files).
-2. `npm install`
-3. `npm run dev` and start editing `src/App.tsx`.
-4. Push to GitHub and open it on immediately.run with the link above.
+## Architecture
 
-## Fast loading on immediately.run (auto-cache)
+- `src/hooks/useWhiteboard.ts` — the controller: camera, store, and all
+  pointer/keyboard gestures. The single seam where the persistence and change
+  layers attach.
+- `src/lib/` — pure helpers: `camera.ts` (projection/zoom math), `geometry.ts`
+  (hit-testing, connection anchors), `types.ts` (the document model, shaped to
+  the `whiteboard:` frontmatter namespace), `ids.ts`.
+- `src/components/` — the canvas (`Canvas`, `ObjectFrame`, `Connections`,
+  `SelectionOverlay`) and chrome (`TopBar`, `Inspector`, `JourneysPanel`,
+  `Playback`, `StateScreens`, `MobileChrome`, …), wired through context.
 
-immediately.run normally reads your sources from the GitHub API, which is slow
-and rate-limited for anonymous visitors. This template ships a GitHub Action
-([`.github/workflows/cache.yml`](./.github/workflows/cache.yml)) that, on every
-push to `main`, builds a pre-cached zip of your repo and publishes it to your
-repo's **own GitHub Pages**. immediately.run finds it automatically at
-`https://<owner>.github.io/<repo>/cached_repositories/main.zip` and loads from
-there — falling back to the API if it's missing.
+### Not yet wired (separate, gated platform deltas)
 
-The cache also embeds a manifest sidecar, so visitors can push edits back to
-GitHub even when the app was loaded from the zip.
+Per the spec's dependency table (§11), these depend on capabilities in other
+repos and are deliberately left as integration seams; the Share / Insert-image /
+Open-source actions currently surface the task invocation as a toast:
 
-**One-time setup:** in your repo, go to **Settings → Pages → Build and deployment**
-and set **Source** to **GitHub Actions**. Push to `main` and the workflow does
-the rest. (The cache may lag a push by up to ~10 minutes of GitHub Pages CDN
-caching.)
+- live space mounts + `boards.json` discovery, MDX-from-mount compilation (the
+  V1 gate), `PollSource`/`WatchSource` change intake (D5);
+- the `pick-file`, `share-space`, and `edit-file` task integrations (D1–D3);
+- anonymous share links end to end (D4).
 
-### Always run the newest commit
-
-By default the cached version is served even if it's a few minutes behind
-`main`. If your app must always reflect the very latest commit, add this to
-`package.json`:
-
-```jsonc
-{
-  "immediately.run": {
-    "requireLatest": true
-  }
-}
-```
-
-immediately.run still boots instantly from the cache, then checks in the
-background (one API request) whether the cache is current and, if not, reloads
-from GitHub.
-
-## How it's organized
-
-immediately.run renders the **default export of `src/App.tsx`** — that's the
-entry point, not `main.tsx`.
-
-```
-src/
-  main.tsx              # local vite dev/build entry only — immediately.run IGNORES this
-  App.tsx               # ROOT: default export + imports the global CSS
-  index.css             # fonts, design tokens (dark + light), resets
-  App.css               # layout + component styles
-  mdx.d.ts              # type shim so `import X from './x.mdx'` works
-  components/           # one default-exported React component per file
-  data/                 # typed data arrays (NO components/JSX here)
-  hooks/                # custom hooks (NO components here)
-  assets/               # images you import, e.g. import logo from './assets/logo.png'
-```
-
-The included page shows the core patterns: a data array mapped to cards
-(`data/features.ts` → `components/Features.tsx`), a custom hook
-(`hooks/useTheme.ts` → `components/ThemeSwitch.tsx`), and local React state
-(`components/Counter.tsx`).
-
-## Filesystem access (`fs`)
-
-immediately.run apps can read and write a filesystem by importing `fs` (async
-only — `fs.promises.*` and callback style). This template has local-dev support
-for it built in via [`@immediately-run/dev-fs`](https://github.com/immediately-run/dev-fs),
-a Vite plugin (already wired into `vite.config.ts`) that bridges the same
-filesystem to your real local disk during `vite dev`. See that repo for the
-supported API and details.
-
-```ts
-import fs from 'fs'
-
-await fs.promises.writeFile('/data/notes.txt', 'hello', 'utf8')
-const text = await fs.promises.readFile('/data/notes.txt', 'utf8')
-```
-
-`main.tsx` runs a one-off round-trip smoke test in dev — check the browser
-console for the `[dev-fs]` group, and delete it freely.
-
-## The rules that keep it working on immediately.run
-
-See [`CLAUDE.md`](./CLAUDE.md) for the full list. The essentials:
-
-- **Global CSS is imported from `App.tsx`, never only from `main.tsx`.**
-- **A file that exports a component exports *only* components** — data, consts,
-  and helpers go in `data/`, `hooks/`, or `lib/`. `npm run lint` enforces this.
-- **Pull colors, fonts, radii, and shadows from the tokens in `index.css`**
-  rather than hard-coding values.
+The `package.json` manifest declares exactly the three tasks the spec's §7
+names — no capability is added ahead of a spec change.
 
 ## Develop
 
-Requires Node.js 20.19+ or 22.12+.
-
 ```bash
 npm install
-npm run dev      # local dev server
-npm run build    # tsc -b && vite build — must pass with no type errors
-npm run lint     # eslint — enforces the React Fast Refresh / HMR rule
-npm run preview  # serve the production build
+npm run dev     # vite — eyeball the canvas
+npm run build   # tsc -b && vite build (must pass)
+npm run lint    # eslint (must pass — Fast Refresh rule is load-bearing here)
 ```
+
+See `CLAUDE.md` for the immediately.run authoring rules this repo follows.

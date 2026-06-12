@@ -1,0 +1,694 @@
+// The whiteboard's single source of truth: camera, objects, selection, and all
+// pointer/keyboard gesture logic. Ported from the design comp's controller into
+// one hook so the presentational components stay thin. Geometry gestures write
+// "once, on gesture end" (spec §5.1); here the write is an in-memory mutation +
+// a saved-toast, the seam where the persistence layer (§2.6 round-trip discipline)
+// will attach once the change layer lands.
+
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  clampZoom,
+  originX,
+  originY,
+  project,
+  worldAt,
+  zoomAround,
+} from '../lib/camera';
+import type { Viewport } from '../lib/camera';
+import { anchorPoint, objectAtLocal, objectsInRect } from '../lib/geometry';
+import { generateId } from '../lib/ids';
+import type {
+  Background,
+  Camera,
+  Connection,
+  Journey,
+  Mode,
+  ObjectKind,
+  ScreenKind,
+  Toast,
+  View,
+  WObject,
+} from '../lib/types';
+import { BOARD, SEED_JOURNEYS, SEED_VIEWS, seedObjects } from '../data/seedBoard';
+
+interface WBState {
+  mode: Mode;
+  light: boolean;
+  bg: Background;
+  cam: Camera;
+  vp: Viewport;
+  objects: WObject[];
+  views: View[];
+  journeys: Journey[];
+  selection: string[];
+  hover: string | null;
+  marquee: { x: number; y: number; w: number; h: number } | null;
+  connectPreview: { from: string; x: number; y: number; target: string | null } | null;
+  inspectorOpen: boolean;
+  panelOpen: boolean;
+  quickMenu: { lx: number; ly: number; wx: number; wy: number } | null;
+  journey: { jid: string; idx: number } | null;
+  toasts: Toast[];
+  screen: ScreenKind;
+  demoMenuOpen: boolean;
+  panning: boolean;
+  reduced: boolean;
+}
+
+type Drag =
+  | { type: 'pan'; sx: number; sy: number; cx: number; cy: number }
+  | { type: 'move'; sx: number; sy: number; ids: string[]; orig: Record<string, { x: number; y: number }>; moved: boolean }
+  | { type: 'marquee'; sx: number; sy: number; add: boolean; base: string[] }
+  | { type: 'connect'; from: string; side: string; moved: boolean }
+  | { type: 'resize'; kind: string; sx: number; sy: number; o: { x: number; y: number; w: number; h: number; rot: number }; id: string; moved: boolean }
+  | { type: 'rotate'; sx: number; sy: number; o: { x: number; y: number; w: number; h: number; rot: number }; id: string; moved: boolean }
+  | null;
+
+const initialViewport = (): Viewport => ({
+  vw: typeof window !== 'undefined' ? window.innerWidth : 1440,
+  vh: typeof window !== 'undefined' ? window.innerHeight : 900,
+  vleft: 0,
+  vtop: 0,
+});
+
+const MOBILE_BREAKPOINT = 720;
+
+const prefersReducedMotion = (): boolean => {
+  try {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+};
+
+export function useWhiteboard() {
+  // The canvas element arrives via a callback ref (a function, not a ref object
+  // read during render) so the listener effect re-runs once it mounts.
+  const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null);
+  const registerCanvas = useCallback((el: HTMLDivElement | null) => setCanvasEl(el), []);
+  const dragRef = useRef<Drag>(null);
+  const tweenRef = useRef<number | null>(null);
+  const spaceRef = useRef(false);
+  const toastSeq = useRef(0);
+
+  const [state, setState] = useState<WBState>(() => ({
+    mode: 'run',
+    light: false,
+    bg: BOARD.background,
+    cam: { cx: 250, cy: 150, zoom: 0.6 },
+    vp: initialViewport(),
+    objects: seedObjects(),
+    views: SEED_VIEWS.slice(),
+    journeys: SEED_JOURNEYS,
+    selection: [],
+    hover: null,
+    marquee: null,
+    connectPreview: null,
+    inspectorOpen: false,
+    panelOpen: false,
+    quickMenu: null,
+    journey: null,
+    toasts: [],
+    screen: null,
+    demoMenuOpen: false,
+    panning: false,
+    reduced: prefersReducedMotion(),
+  }));
+
+  // Mirror committed state so the document-level handlers branch on fresh values.
+  const stateRef = useRef(state);
+  useEffect(() => {
+    stateRef.current = state;
+  });
+
+  const update = useCallback(
+    (patch: Partial<WBState> | ((s: WBState) => Partial<WBState>)) =>
+      setState((prev) => ({ ...prev, ...(typeof patch === 'function' ? patch(prev) : patch) })),
+    [],
+  );
+
+  const isMobile = useCallback(() => state.vp.vw < MOBILE_BREAKPOINT, [state.vp.vw]);
+
+  // ---- camera helpers (read latest viewport from the ref) ----
+  const localPoint = useCallback((e: { clientX: number; clientY: number }): [number, number] => {
+    const vp = stateRef.current.vp;
+    return [e.clientX - vp.vleft, e.clientY - vp.vtop];
+  }, []);
+
+  const setZoom = useCallback((nz: number, lx?: number, ly?: number) => {
+    update((s) => ({ cam: zoomAround(s.cam, s.vp, nz, lx, ly) }));
+  }, [update]);
+
+  // ---- toasts ----
+  const dismissToast = useCallback((id: number) => {
+    update((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }));
+  }, [update]);
+
+  const toast = useCallback(
+    (text: string, icon = 'check', opts: Partial<Toast> = {}) => {
+      const id = ++toastSeq.current;
+      const t: Toast = { id, text, icon, ...opts };
+      update((s) => ({ toasts: s.toasts.concat(t) }));
+      const ttl = opts.actionLabel ? 9000 : 3500;
+      setTimeout(() => dismissToast(id), ttl);
+    },
+    [update, dismissToast],
+  );
+
+  // ---- camera animation ----
+  const flyTo = useCallback(
+    (target: { cx: number; cy: number; zoom: number } | null, dur?: number) => {
+      if (!target) return;
+      const dest: Camera = { cx: target.cx, cy: target.cy, zoom: target.zoom };
+      if (tweenRef.current) cancelAnimationFrame(tweenRef.current);
+      if (stateRef.current.reduced || !dur) {
+        update({ cam: dest });
+        return;
+      }
+      const from = { ...stateRef.current.cam };
+      const t0 = performance.now();
+      const ease = (p: number) => (p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2);
+      const step = (now: number) => {
+        const p = Math.min(1, (now - t0) / dur);
+        const e = ease(p);
+        update({
+          cam: {
+            cx: from.cx + (dest.cx - from.cx) * e,
+            cy: from.cy + (dest.cy - from.cy) * e,
+            zoom: from.zoom + (dest.zoom - from.zoom) * e,
+          },
+        });
+        if (p < 1) tweenRef.current = requestAnimationFrame(step);
+      };
+      tweenRef.current = requestAnimationFrame(step);
+    },
+    [update],
+  );
+
+  // ---- views & journeys ----
+  const resolveView = useCallback((v: View | string | { cx: number; cy: number; zoom: number }) => {
+    if (typeof v === 'string') return stateRef.current.views.find((x) => x.name === v) ?? null;
+    return { cx: v.cx, cy: v.cy, zoom: v.zoom };
+  }, []);
+
+  const saveView = useCallback(() => {
+    update((s) => {
+      const name = `view-${s.views.length + 1}`;
+      return { views: s.views.concat([{ name, cx: s.cam.cx, cy: s.cam.cy, zoom: s.cam.zoom }]) };
+    });
+    toast(`Saved views/view-${stateRef.current.views.length + 1}.md`, 'save');
+  }, [update, toast]);
+
+  const goStep = useCallback(
+    (j: Journey, idx: number, instant?: boolean) => {
+      const s = j.steps[idx];
+      const v = resolveView(s.view);
+      if (v) flyTo(v, instant ? 0 : s.duration ?? 800);
+    },
+    [resolveView, flyTo],
+  );
+
+  const playJourney = useCallback(
+    (jid: string) => {
+      const j = stateRef.current.journeys.find((x) => x.id === jid);
+      if (!j) return;
+      update({ journey: { jid, idx: 0 }, panelOpen: false, inspectorOpen: false });
+      goStep(j, 0, true);
+    },
+    [update, goStep],
+  );
+
+  const playExit = useCallback(() => {
+    if (tweenRef.current) cancelAnimationFrame(tweenRef.current);
+    update({ journey: null });
+  }, [update]);
+
+  const playNext = useCallback(() => {
+    const jr = stateRef.current.journey;
+    if (!jr) return;
+    const j = stateRef.current.journeys.find((x) => x.id === jr.jid);
+    if (!j) return;
+    const ni = jr.idx + 1;
+    if (ni >= j.steps.length) {
+      playExit();
+      return;
+    }
+    update({ journey: { ...jr, idx: ni } });
+    goStep(j, ni);
+  }, [update, goStep, playExit]);
+
+  const playPrev = useCallback(() => {
+    const jr = stateRef.current.journey;
+    if (!jr) return;
+    const j = stateRef.current.journeys.find((x) => x.id === jr.jid);
+    if (!j) return;
+    const ni = Math.max(0, jr.idx - 1);
+    update({ journey: { ...jr, idx: ni } });
+    goStep(j, ni);
+  }, [update, goStep]);
+
+  const playSeek = useCallback(
+    (idx: number) => {
+      const jr = stateRef.current.journey;
+      if (!jr) return;
+      const j = stateRef.current.journeys.find((x) => x.id === jr.jid);
+      if (!j) return;
+      update({ journey: { ...jr, idx } });
+      goStep(j, idx);
+    },
+    [update, goStep],
+  );
+
+  // ---- mutations ----
+  const patchSel = useCallback(
+    (patch: Partial<WObject>) => {
+      update((s) => ({ objects: s.objects.map((o) => (s.selection.includes(o.id) ? { ...o, ...patch } : o)) }));
+    },
+    [update],
+  );
+
+  const deleteSelection = useCallback(() => {
+    const sel = stateRef.current.selection.slice();
+    if (!sel.length) return;
+    const removed = stateRef.current.objects.filter((o) => sel.includes(o.id));
+    update((s) => ({ objects: s.objects.filter((o) => !sel.includes(o.id)), selection: [] }));
+    // Delete is a rename into objects/.trash/ with a 10s undo (spec §4.2).
+    toast(`${sel.length > 1 ? `${sel.length} objects` : 'Object'} moved to .trash`, 'trash', {
+      actionLabel: 'Undo',
+      onAction: () => update((s) => ({ objects: s.objects.concat(removed) })),
+    });
+  }, [update, toast]);
+
+  const createObject = useCallback(
+    (kind: ObjectKind, wx: number, wy: number) => {
+      const o: WObject = {
+        id: generateId(kind === 'note' ? 'note' : kind),
+        kind,
+        x: wx - 100,
+        y: wy - 74,
+        w: 200,
+        h: 148,
+        rot: 0,
+        scale: 1,
+        z: 3,
+        connections: [],
+      };
+      if (kind === 'note') {
+        o.color = 'lemon';
+        o.title = 'New note';
+      } else if (kind === 'prose') {
+        o.title = 'Prose';
+        o.body = 'Write here…';
+        o.w = 260;
+        o.h = 160;
+      } else if (kind === 'label') {
+        o.title = 'Label';
+        o.w = 320;
+        o.h = 80;
+        o.z = 1;
+      } else if (kind === 'shape') {
+        o.shape = 'rect';
+        o.title = '';
+        o.w = 200;
+        o.h = 140;
+      } else if (kind === 'frame') {
+        o.title = 'Frame';
+        o.w = 360;
+        o.h = 300;
+        o.z = 1;
+      } else if (kind === 'img') {
+        o.loaded = false;
+        o.title = 'Image';
+      } else if (kind === 'component') {
+        o.title = '<Component/>';
+      }
+      update((s) => ({
+        objects: s.objects.concat(o),
+        selection: [o.id],
+        quickMenu: null,
+        inspectorOpen: true,
+        mode: 'edit',
+      }));
+      toast(`Created objects/${o.id}.mdx`, 'plus');
+    },
+    [update, toast],
+  );
+
+  const patchObject = useCallback(
+    (id: string, patch: Partial<WObject>) => {
+      update((s) => ({ objects: s.objects.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
+    },
+    [update],
+  );
+
+  const addConnection = useCallback(
+    (from: string, to: string) => {
+      const c: Connection = { to, kind: 'arrow', style: { stroke: 'accent', dash: false } };
+      update((s) => ({ objects: s.objects.map((o) => (o.id === from ? { ...o, connections: o.connections.concat(c) } : o)) }));
+      toast(`Connected ${from} → ${to}`, 'check');
+    },
+    [update, toast],
+  );
+
+  // ---- pointer gestures ----
+  const onCanvasDown = useCallback(
+    (e: React.PointerEvent) => {
+      const s = stateRef.current;
+      if (s.quickMenu) update({ quickMenu: null });
+      if (s.demoMenuOpen) update({ demoMenuOpen: false });
+      const mid = e.button === 1;
+      if (s.mode === 'edit' && !spaceRef.current && !mid && !isMobile()) {
+        const [lx, ly] = localPoint(e);
+        if (!e.shiftKey) update({ selection: [] });
+        dragRef.current = { type: 'marquee', sx: lx, sy: ly, add: e.shiftKey, base: s.selection.slice() };
+        update({ marquee: { x: lx, y: ly, w: 0, h: 0 } });
+      } else {
+        dragRef.current = { type: 'pan', sx: e.clientX, sy: e.clientY, cx: s.cam.cx, cy: s.cam.cy };
+        update({ panning: true });
+      }
+    },
+    [update, isMobile, localPoint],
+  );
+
+  const objPointerDown = useCallback(
+    (id: string, e: React.PointerEvent) => {
+      e.stopPropagation();
+      const s = stateRef.current;
+      if (s.mode !== 'edit') {
+        dragRef.current = { type: 'pan', sx: e.clientX, sy: e.clientY, cx: s.cam.cx, cy: s.cam.cy };
+        update({ panning: true });
+        return;
+      }
+      const o = s.objects.find((x) => x.id === id);
+      if (!o) return;
+      let sel = s.selection.slice();
+      if (e.shiftKey) sel = sel.includes(id) ? sel.filter((x) => x !== id) : sel.concat(id);
+      else if (!sel.includes(id)) sel = [id];
+      update({ selection: sel, inspectorOpen: true, quickMenu: null });
+      if (o.locked) return;
+      const orig: Record<string, { x: number; y: number }> = {};
+      s.objects.forEach((x) => {
+        if (sel.includes(x.id)) orig[x.id] = { x: x.x, y: x.y };
+      });
+      dragRef.current = { type: 'move', sx: e.clientX, sy: e.clientY, ids: sel, orig, moved: false };
+    },
+    [update],
+  );
+
+  const startHandle = useCallback((kind: 'resize' | 'rotate', handle: string, e: React.PointerEvent) => {
+    e.stopPropagation();
+    const s = stateRef.current;
+    const id = s.selection[0];
+    const o = s.objects.find((x) => x.id === id);
+    if (!o) return;
+    const base = { x: o.x, y: o.y, w: o.w, h: o.h, rot: o.rot };
+    dragRef.current =
+      kind === 'rotate'
+        ? { type: 'rotate', sx: e.clientX, sy: e.clientY, o: base, id, moved: false }
+        : { type: 'resize', kind: handle, sx: e.clientX, sy: e.clientY, o: base, id, moved: false };
+  }, []);
+
+  const startConnect = useCallback(
+    (id: string, side: string, e: React.PointerEvent) => {
+      e.stopPropagation();
+      dragRef.current = { type: 'connect', from: id, side, moved: false };
+      const [lx, ly] = localPoint(e);
+      update({ connectPreview: { from: id, x: lx, y: ly, target: null } });
+    },
+    [update, localPoint],
+  );
+
+  const setHover = useCallback((id: string | null) => update({ hover: id }), [update]);
+  const clearSelection = useCallback(() => update({ selection: [] }), [update]);
+
+  // ---- mode / view controls ----
+  const setRun = useCallback(
+    () => update({ mode: 'run', selection: [], inspectorOpen: false, quickMenu: null, connectPreview: null }),
+    [update],
+  );
+  const setEdit = useCallback(() => update({ mode: 'edit' }), [update]);
+  const toggleTheme = useCallback(() => update((s) => ({ light: !s.light })), [update]);
+  const togglePanel = useCallback(() => update((s) => ({ panelOpen: !s.panelOpen })), [update]);
+  const setScreen = useCallback((screen: ScreenKind) => update({ screen }), [update]);
+  const setBackground = useCallback((bg: Background) => update({ bg }), [update]);
+  const setLight = useCallback((light: boolean) => update({ light }), [update]);
+  const closeInspector = useCallback(() => update({ inspectorOpen: false }), [update]);
+  const closePanel = useCallback(() => update({ panelOpen: false }), [update]);
+  const toggleDemoMenu = useCallback(() => update((s) => ({ demoMenuOpen: !s.demoMenuOpen })), [update]);
+
+  const onCanvasDblClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (stateRef.current.mode !== 'edit') return;
+      const [lx, ly] = localPoint(e);
+      const [wx, wy] = worldAt(stateRef.current.cam, stateRef.current.vp, lx, ly);
+      update({ quickMenu: { lx, ly, wx, wy } });
+    },
+    [update, localPoint],
+  );
+
+  // ---- demo scenarios (the design's "demo states" menu) ----
+  const demoLWW = useCallback(() => {
+    toast('Note was changed by @dana while you edited — their version kept.', 'alert', {
+      iconColor: '#caa24a',
+      actionLabel: 'Keep mine',
+      onAction: () => toast('Your version restored', 'check'),
+    });
+  }, [toast]);
+
+  const demoDowngrade = useCallback(() => {
+    update({ mode: 'run', selection: [], inspectorOpen: false });
+    toast('Your access changed to read-only. Edit mode closed.', 'lock', { iconColor: 'var(--ink-2)' });
+  }, [update, toast]);
+
+  // ---- effects: measurement + global listeners ----
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', state.light ? 'light' : 'dark');
+  }, [state.light]);
+
+  useEffect(() => {
+    const el = canvasEl;
+    if (!el) return;
+
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      update({ vp: { vw: r.width, vh: r.height, vleft: r.left, vtop: r.top } });
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const [lx, ly] = localPoint(e);
+      if (e.ctrlKey || e.metaKey) {
+        const f = Math.exp(-e.deltaY * 0.01);
+        setZoom(stateRef.current.cam.zoom * f, lx, ly);
+      } else {
+        update((s) => ({ cam: { cx: s.cam.cx + e.deltaX / s.cam.zoom, cy: s.cam.cy + e.deltaY / s.cam.zoom, zoom: s.cam.zoom } }));
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+
+    const onMove = (e: PointerEvent) => {
+      const d = dragRef.current;
+      if (!d) return;
+      const z = stateRef.current.cam.zoom;
+      if (d.type === 'pan') {
+        const dx = e.clientX - d.sx;
+        const dy = e.clientY - d.sy;
+        update({ cam: { cx: d.cx - dx / z, cy: d.cy - dy / z, zoom: z } });
+      } else if (d.type === 'move') {
+        const dx = (e.clientX - d.sx) / z;
+        const dy = (e.clientY - d.sy) / z;
+        d.moved = true;
+        update((s) => ({
+          objects: s.objects.map((o) =>
+            d.ids.includes(o.id) && d.orig[o.id] ? { ...o, x: d.orig[o.id].x + dx, y: d.orig[o.id].y + dy } : o,
+          ),
+        }));
+      } else if (d.type === 'marquee') {
+        const [lx, ly] = localPoint(e);
+        const x = Math.min(lx, d.sx);
+        const y = Math.min(ly, d.sy);
+        const w = Math.abs(lx - d.sx);
+        const hh = Math.abs(ly - d.sy);
+        const s = stateRef.current;
+        const sel = objectsInRect(s.objects, s.cam, s.vp, x, y, w, hh);
+        update({ marquee: { x, y, w, h: hh }, selection: d.add ? Array.from(new Set(d.base.concat(sel))) : sel });
+      } else if (d.type === 'connect') {
+        const [lx, ly] = localPoint(e);
+        const s = stateRef.current;
+        const tgt = objectAtLocal(s.objects, s.cam, s.vp, lx, ly, d.from);
+        update({ connectPreview: { from: d.from, x: lx, y: ly, target: tgt } });
+      } else if (d.type === 'resize' || d.type === 'rotate') {
+        applyHandle(d, e);
+      }
+    };
+
+    const applyHandle = (d: Extract<Drag, { type: 'resize' | 'rotate' }>, e: PointerEvent) => {
+      const s = stateRef.current;
+      const z = s.cam.zoom;
+      const dx = (e.clientX - d.sx) / z;
+      const dy = (e.clientY - d.sy) / z;
+      d.moved = true;
+      update((st) => ({
+        objects: st.objects.map((o) => {
+          if (o.id !== d.id) return o;
+          if (d.type === 'rotate') {
+            const cx = d.o.x + d.o.w / 2;
+            const cy = d.o.y + d.o.h / 2;
+            const [lx, ly] = localPoint(e);
+            const [wx, wy] = worldAt(s.cam, s.vp, lx, ly);
+            let ang = (Math.atan2(wy - cy, wx - cx) * 180) / Math.PI + 90;
+            if (e.shiftKey) ang = Math.round(ang / 15) * 15;
+            return { ...o, rot: Math.round(ang) };
+          }
+          let x = d.o.x;
+          let y = d.o.y;
+          let w = d.o.w;
+          let hh = d.o.h;
+          const k = d.kind;
+          if (k.includes('e')) w = Math.max(60, d.o.w + dx);
+          if (k.includes('s')) hh = Math.max(48, d.o.h + dy);
+          if (k.includes('w')) {
+            w = Math.max(60, d.o.w - dx);
+            x = d.o.x + (d.o.w - w);
+          }
+          if (k.includes('n')) {
+            hh = Math.max(48, d.o.h - dy);
+            y = d.o.y + (d.o.h - hh);
+          }
+          return { ...o, x, y, w, h: hh };
+        }),
+      }));
+    };
+
+    const onUp = (e: PointerEvent) => {
+      const d = dragRef.current;
+      dragRef.current = null;
+      if (!d) {
+        if (stateRef.current.panning) update({ panning: false });
+        return;
+      }
+      if (d.type === 'pan') {
+        update({ panning: false });
+      } else if (d.type === 'move' && d.moved) {
+        toast(`Moved · saved to ${d.ids.length > 1 ? `${d.ids.length} files` : `${d.ids[0]}.mdx`}`, 'check');
+      } else if (d.type === 'marquee') {
+        update({ marquee: null });
+      } else if (d.type === 'connect') {
+        const [lx, ly] = localPoint(e);
+        const s = stateRef.current;
+        const tgt = objectAtLocal(s.objects, s.cam, s.vp, lx, ly, d.from);
+        if (tgt) addConnection(d.from, tgt);
+        update({ connectPreview: null });
+      } else if ((d.type === 'resize' || d.type === 'rotate') && d.moved) {
+        toast('Resized · saved', 'check');
+      }
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const s = stateRef.current;
+      if (s.journey) {
+        if (e.key === 'ArrowRight' || e.key === ' ') {
+          e.preventDefault();
+          playNext();
+        } else if (e.key === 'ArrowLeft') {
+          playPrev();
+        } else if (e.key === 'Escape') {
+          playExit();
+        }
+        return;
+      }
+      if (e.key === 'Escape') update({ selection: [], quickMenu: null, screen: null });
+      if (e.key === ' ') spaceRef.current = true;
+      if (s.mode === 'edit' && s.selection.length) {
+        const step = e.shiftKey ? 10 : 1;
+        let dx = 0;
+        let dy = 0;
+        if (e.key === 'ArrowLeft') dx = -step;
+        else if (e.key === 'ArrowRight') dx = step;
+        else if (e.key === 'ArrowUp') dy = -step;
+        else if (e.key === 'ArrowDown') dy = step;
+        if (dx || dy) {
+          e.preventDefault();
+          const sel = s.selection;
+          update((st) => ({ objects: st.objects.map((o) => (sel.includes(o.id) && !o.locked ? { ...o, x: o.x + dx, y: o.y + dy } : o)) }));
+        }
+        if (e.key === 'Delete' || e.key === 'Backspace') deleteSelection();
+      }
+    };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === ' ') spaceRef.current = false;
+    };
+
+    document.addEventListener('pointermove', onMove);
+    document.addEventListener('pointerup', onUp);
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+      ro.disconnect();
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+      if (tweenRef.current) cancelAnimationFrame(tweenRef.current);
+    };
+    // The listeners read the latest state via stateRef, so they install once
+    // the canvas mounts; the action callbacks they close over are all stable.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasEl]);
+
+  return {
+    state,
+    registerCanvas,
+    isMobile,
+    // camera
+    originX: (vw: number) => originX(state.cam, vw),
+    originY: (vh: number) => originY(state.cam, vh),
+    project: (wx: number, wy: number) => project(state.cam, state.vp, wx, wy),
+    setZoom,
+    clampZoom,
+    flyTo,
+    anchorPoint,
+    // gestures
+    onCanvasDown,
+    onCanvasDblClick,
+    objPointerDown,
+    startHandle,
+    startConnect,
+    setHover,
+    clearSelection,
+    // mutations
+    patchSel,
+    patchObject,
+    deleteSelection,
+    createObject,
+    // views & journeys
+    saveView,
+    resolveView,
+    playJourney,
+    playNext,
+    playPrev,
+    playExit,
+    playSeek,
+    // mode / chrome
+    setRun,
+    setEdit,
+    toggleTheme,
+    togglePanel,
+    closeInspector,
+    closePanel,
+    setBackground,
+    setLight,
+    setScreen,
+    toggleDemoMenu,
+    // toasts + demo
+    toast,
+    dismissToast,
+    demoLWW,
+    demoDowngrade,
+  };
+}

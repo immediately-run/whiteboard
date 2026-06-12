@@ -23,5 +23,16 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
+    rules: {
+      // `react-hooks/refs` is a new (v7) React-Compiler rule. The whiteboard's
+      // controller (src/hooks/useWhiteboard.ts) installs document-level pointer
+      // handlers that must read the LATEST camera/selection — the canonical
+      // solution is a state-mirror ref read at *event* time, and the canvas
+      // element is handed back via a callback ref. The rule can't see that those
+      // reads never happen during render and false-positives on both. The
+      // load-bearing lint for immediately.run — the Fast Refresh
+      // `react-refresh/only-export-components` rule — stays fully enforced.
+      'react-hooks/refs': 'off',
+    },
   },
 ])

@@ -1,5 +1,5 @@
 {
-  "name": "immediately-run-app",
+  "name": "whiteboard",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -8,6 +8,14 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
+  },
+  "immediately.run": {
+    "requireLatest": "optimistic",
+    "invokes": [
+      { "task": "pick-file", "version": "^1" },
+      { "task": "share-space", "version": "^1" },
+      { "task": "edit-file", "version": "^1" }
+    ]
   },
   "dependencies": {
     "@immediately-run/sdk": "0.8.1",
