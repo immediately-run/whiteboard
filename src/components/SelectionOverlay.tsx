@@ -120,6 +120,8 @@ function SelectionOverlay() {
               key={k}
               title="Drag to connect"
               onPointerDown={(e) => wb.startConnect(o.id, k, e)}
+              onMouseEnter={() => wb.setHover(o.id)}
+              onMouseLeave={() => wb.setHover(null)}
               style={{
                 position: 'absolute',
                 left: `calc(${fx * 100}% - 6px)`,
