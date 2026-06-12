@@ -30,6 +30,24 @@ import type {
   WObject,
 } from '../lib/types';
 import { BOARD, SEED_JOURNEYS, SEED_VIEWS, seedObjects } from '../data/seedBoard';
+import {
+  boardExists,
+  loadBoard,
+  openBoardTarget,
+  restoreObject,
+  saveObject,
+  saveView as persistView,
+  seedBoard,
+  trashObject,
+} from '../lib/boardStore';
+import type { BoardTarget } from '../lib/boardStore';
+import { onMountsChange } from '@immediately-run/sdk';
+
+/** Short ` · code` suffix from a typed platform/fs error, for toast text. */
+function codeOf(e: unknown): string {
+  const c = (e as { code?: string } | null)?.code;
+  return c ? ` · ${c}` : '';
+}
 
 interface WBState {
   mode: Mode;
@@ -155,6 +173,52 @@ export function useWhiteboard() {
     [update, dismissToast],
   );
 
+  // ---- persistence (the §2.6 round-trip seam, now live) ----
+  // The board's durable target (a per-user app space) once resolved; null means
+  // we never got one (signed out / declined) and the board is in memory only.
+  const boardRef = useRef<BoardTarget | null>(null);
+  // Per-object debounce timers so inspector typing / arrow nudges autosave once
+  // they settle, not on every keystroke.
+  const saveTimers = useRef<Map<string, number>>(new Map());
+
+  // Write the given objects' files, then report with one toast. With no board
+  // the change is in memory only (we keep the optimistic message); a read-only
+  // board reports instead of silently dropping the write.
+  const commitSave = useCallback(
+    (objs: WObject[], savedText: string, savedIcon = 'check') => {
+      const t = boardRef.current;
+      if (!t) {
+        toast(savedText, savedIcon);
+        return;
+      }
+      if (t.mode === 'ro') {
+        toast('Read-only board · change not saved', 'lock', { iconColor: 'var(--ink-2)' });
+        return;
+      }
+      Promise.all(objs.map((o) => saveObject(t, o))).then(
+        () => toast(savedText, savedIcon),
+        (e) => toast(`Save failed${codeOf(e)}`, 'alert', { iconColor: '#caa24a' }),
+      );
+    },
+    [toast],
+  );
+
+  // Quiet debounced autosave for continuous edits (typing, arrow-key nudges).
+  const scheduleSave = useCallback((ids: string[]) => {
+    const t = boardRef.current;
+    if (!t || t.mode === 'ro') return;
+    for (const id of ids) {
+      const prev = saveTimers.current.get(id);
+      if (prev) clearTimeout(prev);
+      const handle = window.setTimeout(() => {
+        saveTimers.current.delete(id);
+        const o = stateRef.current.objects.find((x) => x.id === id);
+        if (o) saveObject(t, o).catch(() => undefined);
+      }, 500);
+      saveTimers.current.set(id, handle);
+    }
+  }, []);
+
   // ---- camera animation ----
   const flyTo = useCallback(
     (target: { cx: number; cy: number; zoom: number } | null, dur?: number) => {
@@ -192,11 +256,23 @@ export function useWhiteboard() {
   }, []);
 
   const saveView = useCallback(() => {
-    update((s) => {
-      const name = `view-${s.views.length + 1}`;
-      return { views: s.views.concat([{ name, cx: s.cam.cx, cy: s.cam.cy, zoom: s.cam.zoom }]) };
-    });
-    toast(`Saved views/view-${stateRef.current.views.length + 1}.md`, 'save');
+    const s = stateRef.current;
+    const view: View = { name: `view-${s.views.length + 1}`, cx: s.cam.cx, cy: s.cam.cy, zoom: s.cam.zoom };
+    update((st) => ({ views: st.views.concat([view]) }));
+    const text = `Saved views/${view.name}.md`;
+    const t = boardRef.current;
+    if (!t) {
+      toast(text, 'save');
+      return;
+    }
+    if (t.mode === 'ro') {
+      toast('Read-only board · view not saved', 'lock', { iconColor: 'var(--ink-2)' });
+      return;
+    }
+    persistView(t, view).then(
+      () => toast(text, 'save'),
+      (e) => toast(`Couldn't save view${codeOf(e)}`, 'alert', { iconColor: '#caa24a' }),
+    );
   }, [update, toast]);
 
   const goStep = useCallback(
@@ -263,8 +339,9 @@ export function useWhiteboard() {
   const patchSel = useCallback(
     (patch: Partial<WObject>) => {
       update((s) => ({ objects: s.objects.map((o) => (s.selection.includes(o.id) ? { ...o, ...patch } : o)) }));
+      scheduleSave(stateRef.current.selection);
     },
-    [update],
+    [update, scheduleSave],
   );
 
   const deleteSelection = useCallback(() => {
@@ -273,9 +350,20 @@ export function useWhiteboard() {
     const removed = stateRef.current.objects.filter((o) => sel.includes(o.id));
     update((s) => ({ objects: s.objects.filter((o) => !sel.includes(o.id)), selection: [] }));
     // Delete is a rename into objects/.trash/ with a 10s undo (spec §4.2).
+    const t = boardRef.current;
+    if (t && t.mode !== 'ro') {
+      Promise.all(sel.map((id) => trashObject(t, id))).catch((e) =>
+        toast(`Delete failed${codeOf(e)}`, 'alert', { iconColor: '#caa24a' }),
+      );
+    }
     toast(`${sel.length > 1 ? `${sel.length} objects` : 'Object'} moved to .trash`, 'trash', {
       actionLabel: 'Undo',
-      onAction: () => update((s) => ({ objects: s.objects.concat(removed) })),
+      onAction: () => {
+        update((s) => ({ objects: s.objects.concat(removed) }));
+        if (t && t.mode !== 'ro') {
+          Promise.all(removed.map((o) => restoreObject(t, o.id))).catch(() => undefined);
+        }
+      },
     });
   }, [update, toast]);
 
@@ -329,25 +417,28 @@ export function useWhiteboard() {
         inspectorOpen: true,
         mode: 'edit',
       }));
-      toast(`Created objects/${o.id}.mdx`, 'plus');
+      commitSave([o], `Created objects/${o.id}.mdx`, 'plus');
     },
-    [update, toast],
+    [update, commitSave],
   );
 
   const patchObject = useCallback(
     (id: string, patch: Partial<WObject>) => {
       update((s) => ({ objects: s.objects.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
+      scheduleSave([id]);
     },
-    [update],
+    [update, scheduleSave],
   );
 
   const addConnection = useCallback(
     (from: string, to: string) => {
       const c: Connection = { to, kind: 'arrow', style: { stroke: 'accent', dash: false } };
+      const src = stateRef.current.objects.find((o) => o.id === from);
+      const updated = src ? { ...src, connections: src.connections.concat(c) } : null;
       update((s) => ({ objects: s.objects.map((o) => (o.id === from ? { ...o, connections: o.connections.concat(c) } : o)) }));
-      toast(`Connected ${from} → ${to}`, 'check');
+      if (updated) commitSave([updated], `Connected ${from} → ${to}`);
     },
-    [update, toast],
+    [update, commitSave],
   );
 
   // ---- pointer gestures ----
@@ -573,7 +664,8 @@ export function useWhiteboard() {
       if (d.type === 'pan') {
         update({ panning: false });
       } else if (d.type === 'move' && d.moved) {
-        toast(`Moved · saved to ${d.ids.length > 1 ? `${d.ids.length} files` : `${d.ids[0]}.mdx`}`, 'check');
+        const moved = stateRef.current.objects.filter((o) => d.ids.includes(o.id));
+        commitSave(moved, `Moved · saved to ${d.ids.length > 1 ? `${d.ids.length} files` : `${d.ids[0]}.mdx`}`);
       } else if (d.type === 'marquee') {
         update({ marquee: null });
       } else if (d.type === 'connect') {
@@ -583,7 +675,8 @@ export function useWhiteboard() {
         if (tgt) addConnection(d.from, tgt);
         update({ connectPreview: null });
       } else if ((d.type === 'resize' || d.type === 'rotate') && d.moved) {
-        toast('Resized · saved', 'check');
+        const o = stateRef.current.objects.find((x) => x.id === d.id);
+        commitSave(o ? [o] : [], 'Resized · saved');
       }
     };
 
@@ -614,6 +707,7 @@ export function useWhiteboard() {
           e.preventDefault();
           const sel = s.selection;
           update((st) => ({ objects: st.objects.map((o) => (sel.includes(o.id) && !o.locked ? { ...o, x: o.x + dx, y: o.y + dy } : o)) }));
+          scheduleSave(sel);
         }
         if (e.key === 'Delete' || e.key === 'Backspace') deleteSelection();
       }
@@ -640,6 +734,74 @@ export function useWhiteboard() {
     // the canvas mounts; the action callbacks they close over are all stable.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvasEl]);
+
+  // ---- open the durable board space, hydrate (or seed), watch for downgrades ----
+  useEffect(() => {
+    let cancelled = false;
+    let unsub: (() => void) | undefined;
+    const timers = saveTimers.current;
+    (async () => {
+      let target: BoardTarget;
+      try {
+        // Auto-open the signed-in user's board space. Declined / signed-out
+        // rejects with a typed SpaceError — we degrade to the in-memory seed.
+        target = await openBoardTarget();
+      } catch {
+        if (!cancelled) toast('Working in memory — sign in to save your board.', 'save', { iconColor: 'var(--ink-2)' });
+        return;
+      }
+      if (cancelled) return;
+      boardRef.current = target;
+      try {
+        if (await boardExists(target)) {
+          const board = await loadBoard(target);
+          if (!cancelled) {
+            update({
+              objects: board.objects,
+              views: board.views.length ? board.views : SEED_VIEWS.slice(),
+              journeys: board.journeys.length ? board.journeys : SEED_JOURNEYS,
+            });
+            toast('Board loaded from your space.', 'check');
+          }
+        } else {
+          // First run on an empty space: persist the seed demo as the starting board.
+          const s = stateRef.current;
+          await seedBoard(target, { objects: s.objects, views: s.views, journeys: s.journeys });
+          if (!cancelled) toast('Board created in your space.', 'check');
+        }
+      } catch (e) {
+        if (!cancelled) toast(`Couldn't open board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      }
+      if (cancelled) return;
+      // A live role-downgrade re-announces the mount as `ro`; removal tears it down.
+      unsub = onMountsChange((mounts, removed) => {
+        const cur = boardRef.current;
+        if (!cur) return;
+        const m = mounts.find((x) => (cur.spaceId ? x.id === cur.spaceId : x.path === cur.root));
+        if (m) {
+          const mode = m.mode === 'ro' ? 'ro' : 'rw';
+          if (mode !== cur.mode) {
+            boardRef.current = { ...cur, mode };
+            if (mode === 'ro') {
+              update({ mode: 'run', selection: [], inspectorOpen: false });
+              toast('Your access changed to read-only.', 'lock', { iconColor: 'var(--ink-2)' });
+            }
+          }
+        } else if (removed.some((r) => (cur.spaceId ? r.id === cur.spaceId : r.path === cur.root))) {
+          boardRef.current = null;
+          toast('Board space disconnected.', 'alert', { iconColor: 'var(--ink-2)' });
+        }
+      });
+    })();
+    return () => {
+      cancelled = true;
+      unsub?.();
+      for (const h of timers.values()) clearTimeout(h);
+      timers.clear();
+    };
+    // Runs once on mount; reads live state via stateRef and stable callbacks.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     state,

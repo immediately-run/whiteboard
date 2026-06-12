@@ -17,4 +17,11 @@ export default defineConfig({
     { enforce: 'pre', ...mdx() },
     react(),
   ],
+  // `fs` is host-provided at runtime (ZenFS in the sandbox, the devFs bridge under
+  // `vite dev`). devFs is dev-only, so leave the bare specifier external in the
+  // production build — immediately.run resolves it from its runtime, and the local
+  // build stays a pure type/sanity check.
+  build: {
+    rollupOptions: { external: ['fs', 'node:fs'] },
+  },
 })
