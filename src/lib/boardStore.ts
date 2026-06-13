@@ -10,8 +10,14 @@
 // never rewrite the whole board on an edit.
 
 import fs from 'fs';
-import { openAppSpace } from '@immediately-run/sdk';
-import type { SandboxMount } from '@immediately-run/sdk';
+// Import from the `/mounts` subpath, NOT the package barrel. The barrel
+// (`export * from "./tasks"`) has a top-level `addListener("task-input", …)`
+// side effect that calls the host transport at module-eval time — which throws
+// `no host transport` under local `vite dev` (no host) before any of our
+// try/catch can run. The `/mounts` subpath pulls in only the space/mount API,
+// which is side-effect-free until actually called.
+import { openAppSpace } from '@immediately-run/sdk/mounts';
+import type { SandboxMount } from '@immediately-run/sdk/mounts';
 import {
   parseJourney,
   parseObject,
@@ -63,6 +69,13 @@ async function readDirSafe(path: string): Promise<string[]> {
   }
 }
 
+// Where the board lives during local `vite dev`. There is no host transport
+// locally, so `openAppSpace` can't resolve a space — but @immediately-run/dev-fs
+// bridges `fs` to real disk, so we persist to a fixed root instead. It sits under
+// `devfs-playground/` on purpose: that path is git-ignored and is excluded from
+// Vite's HMR file watcher by default, so autosaves don't trigger a page reload.
+const DEV_BOARD_ROOT = '/devfs-playground/board';
+
 /**
  * Open the signed-in user's board space (the §8.6 zero-config path). Rejects
  * with a SpaceError (`.code` = `auth-required` | `cancelled` | `forbidden`)
@@ -70,6 +83,14 @@ async function readDirSafe(path: string): Promise<string[]> {
  * in-memory board instead of crashing (platform rule 9).
  */
 export async function openBoardTarget(slot = 'default'): Promise<BoardTarget> {
+  // Local `vite dev`: persist to disk via dev-fs at a fixed root, since the
+  // platform space API needs a host that isn't there. `import.meta.env.DEV` is
+  // true only under `vite dev`; on immediately.run it is absent/falsy and the
+  // real per-user space path below is used. (`?.` guards the case where the
+  // runtime doesn't define `import.meta.env` at all.)
+  if (import.meta.env?.DEV) {
+    return { root: `${DEV_BOARD_ROOT}/${slot}`, mode: 'rw' };
+  }
   const mount: SandboxMount = await openAppSpace(slot);
   return { root: mount.path, mode: mount.mode === 'ro' ? 'ro' : 'rw', spaceId: mount.id };
 }
@@ -131,4 +152,55 @@ export async function saveView(t: BoardTarget, v: View): Promise<void> {
 export async function saveJourney(t: BoardTarget, j: Journey): Promise<void> {
   await fs.promises.mkdir(join(t.root, JOURNEYS), { recursive: true });
   await fs.promises.writeFile(join(t.root, JOURNEYS, `${j.id}.md`), serializeJourney(j), 'utf8');
+}
+
+const ASSETS = 'assets';
+const BOARD_MANIFEST = 'board.md';
+
+/** A folder is a board when it carries a `board.md` manifest (spec §6.1). */
+export async function folderIsBoard(t: BoardTarget): Promise<boolean> {
+  return exists(join(t.root, BOARD_MANIFEST));
+}
+
+/**
+ * Copy a file the user picked (path RELATIVE to the board's space root) into the
+ * board's `assets/`, returning the assets-relative name to reference as
+ * `<Img src="assets/<name>" />` (spec §4.2 — boards stay self-contained). A file
+ * that already lives under `assets/` is referenced in place (no copy). The name
+ * is de-duped so an insert never clobbers an existing asset.
+ */
+export async function copyIntoAssets(t: BoardTarget, srcRel: string): Promise<string> {
+  if (srcRel.startsWith(`${ASSETS}/`)) return srcRel.slice(ASSETS.length + 1);
+  const base = srcRel.split('/').pop() || 'asset';
+  await fs.promises.mkdir(join(t.root, ASSETS), { recursive: true });
+  const dot = base.lastIndexOf('.');
+  const stem = dot > 0 ? base.slice(0, dot) : base;
+  const ext = dot > 0 ? base.slice(dot) : '';
+  let name = base;
+  for (let n = 1; await exists(join(t.root, ASSETS, name)); n += 1) name = `${stem}-${n}${ext}`;
+  // Binary-safe: no encoding arg → a Buffer/Uint8Array round-trip.
+  const data = await fs.promises.readFile(join(t.root, srcRel));
+  await fs.promises.writeFile(join(t.root, ASSETS, name), data);
+  return name;
+}
+
+/**
+ * Scaffold a brand-new board in an (empty) folder: the `board.md` manifest plus
+ * the `objects/`/`views/`/`journeys/` dirs (spec §6.1 New board). Idempotent —
+ * writing into a folder that already has a board just rewrites the manifest.
+ */
+export async function writeNewBoard(t: BoardTarget, title: string): Promise<void> {
+  await fs.promises.mkdir(join(t.root, OBJECTS), { recursive: true });
+  await fs.promises.mkdir(join(t.root, VIEWS), { recursive: true });
+  await fs.promises.mkdir(join(t.root, JOURNEYS), { recursive: true });
+  const manifest = [
+    '---',
+    `title: ${title}`,
+    'whiteboard:',
+    '  schema: 1',
+    '  background: { kind: grid, size: 24 }',
+    '---',
+    '',
+  ].join('\n');
+  await fs.promises.writeFile(join(t.root, BOARD_MANIFEST), manifest, 'utf8');
 }

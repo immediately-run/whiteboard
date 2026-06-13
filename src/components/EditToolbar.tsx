@@ -47,7 +47,13 @@ function EditToolbar() {
           <button
             key={`${t.label}-${i}`}
             title={t.label}
-            onClick={() => (t.kind ? wb.createObject(t.kind, cam.cx, cam.cy) : wb.clearSelection())}
+            onClick={() =>
+              t.kind === 'img'
+                ? wb.insertImage(cam.cx, cam.cy)
+                : t.kind
+                  ? wb.createObject(t.kind, cam.cx, cam.cy)
+                  : wb.clearSelection()
+            }
             style={{
               display: 'flex',
               width: 38,
