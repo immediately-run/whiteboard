@@ -113,7 +113,7 @@ function BoardChooser() {
                 </button>
               ))}
               {sp.role === 'rw' ? (
-                <button onClick={close} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'none', border: '1px dashed var(--line-2)', borderRadius: 11, color: 'var(--ink-3)', font: 'var(--body-sm)', cursor: 'pointer', textAlign: 'left' }}>
+                <button onClick={() => { close(); wb.newBoard(); }} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'none', border: '1px dashed var(--line-2)', borderRadius: 11, color: 'var(--ink-3)', font: 'var(--body-sm)', cursor: 'pointer', textAlign: 'left' }}>
                   <Icon name="plus" size={14} strokeWidth={2} />
                   {`New board in ${sp.name}`}
                 </button>
@@ -124,11 +124,11 @@ function BoardChooser() {
 
         <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 9, flex: 'none' }}>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={close} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, background: 'var(--grad)', border: 'none', borderRadius: 'var(--r-pill)', color: '#1a1020', font: 'var(--label)', cursor: 'pointer' }}>
+            <button onClick={() => { close(); wb.addSpace(); }} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, background: 'var(--grad)', border: 'none', borderRadius: 'var(--r-pill)', color: '#1a1020', font: 'var(--label)', cursor: 'pointer' }}>
               <Icon name="userPlus" size={16} color="#1a1020" strokeWidth={1.75} />
               Add a space…
             </button>
-            <button onClick={close} style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '12px 16px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', color: 'var(--ink)', font: 'var(--label)', cursor: 'pointer' }}>
+            <button onClick={() => { close(); wb.openBoard(); }} style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '12px 16px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', color: 'var(--ink)', font: 'var(--label)', cursor: 'pointer' }}>
               <Icon name="folder" size={16} strokeWidth={1.75} />
               Open folder…
             </button>

@@ -32,6 +32,8 @@ import type {
 import { BOARD, SEED_JOURNEYS, SEED_VIEWS, seedObjects } from '../data/seedBoard';
 import {
   boardExists,
+  copyIntoAssets,
+  folderIsBoard,
   loadBoard,
   openBoardTarget,
   restoreObject,
@@ -39,9 +41,17 @@ import {
   saveView as persistView,
   seedBoard,
   trashObject,
+  writeNewBoard,
 } from '../lib/boardStore';
 import type { BoardTarget } from '../lib/boardStore';
-import { onMountsChange } from '@immediately-run/sdk';
+import { boardSpaceRoot, pickFile, requestSpace, safeRel } from '../lib/pickFile';
+// Subpath import, not the package barrel: the barrel re-exports `./tasks`,
+// whose top-level `addListener` side effect throws `no host transport` at
+// module-eval time under local `vite dev`. `/mounts` is side-effect-free.
+import { onMountsChange } from '@immediately-run/sdk/mounts';
+
+/** Join a mount root with a (validated, relative) path; collapse double slashes. */
+const subPath = (root: string, rel: string): string => `${root}/${rel}`.replace(/\/+/g, '/');
 
 /** Short ` · code` suffix from a typed platform/fs error, for toast text. */
 function codeOf(e: unknown): string {
@@ -422,6 +432,187 @@ export function useWhiteboard() {
     [update, commitSave],
   );
 
+  // ── pick-file flows (spec §6.1 Open/New board, §4.2 Insert image) ──────────
+  // Each invokes the platform picker over a `capDir` of the board's space (the
+  // only authority we hold), then maps the returned `(root, relPath)` PATH back
+  // onto our OWN mount — re-validating it first (defense in depth, §1.3).
+
+  /** Insert an image: pick a file, copy it into the board's `assets/`, drop an
+   *  `<Img>` object at the world point. Self-contained per §4.2. */
+  const insertImage = useCallback(
+    async (wx: number, wy: number) => {
+      const target = boardRef.current;
+      if (!target) {
+        toast('Sign in to insert images into your board.', 'save', { iconColor: 'var(--ink-2)' });
+        return;
+      }
+      try {
+        const res = await pickFile({
+          mode: 'open-file',
+          roots: [await boardSpaceRoot(target)],
+          rootLabels: ['This board’s space'],
+          rootModes: [target.mode],
+          title: 'Insert image',
+          filters: [
+            { label: 'Images', extensions: ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.avif'] },
+            { label: 'All files', extensions: [] },
+          ],
+        });
+        if (!res) return; // cancelled — no toast spam
+        const rel = safeRel(res.relPath);
+        if (!rel) {
+          toast('That file can’t be inserted.', 'alert', { iconColor: '#caa24a' });
+          return;
+        }
+        const name = await copyIntoAssets(target, rel);
+        const o: WObject = {
+          id: generateId('img'),
+          kind: 'img',
+          x: wx - 130,
+          y: wy - 90,
+          w: 260,
+          h: 180,
+          rot: 0,
+          scale: 1,
+          z: 3,
+          title: name,
+          body: `<Img src="assets/${name}" />`,
+          loaded: true,
+          connections: [],
+        };
+        update((s) => ({
+          objects: s.objects.concat(o),
+          selection: [o.id],
+          quickMenu: null,
+          inspectorOpen: true,
+          mode: 'edit',
+          screen: null,
+        }));
+        commitSave([o], `Inserted assets/${name}`, 'image');
+      } catch (e) {
+        toast(`Couldn’t insert image${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      }
+    },
+    [toast, update, commitSave],
+  );
+
+  /** Re-point the active board to `target` and hydrate the canvas from it. */
+  const loadBoardInto = useCallback(
+    async (target: BoardTarget) => {
+      const board = await loadBoard(target);
+      boardRef.current = target;
+      update({
+        objects: board.objects,
+        views: board.views.length ? board.views : SEED_VIEWS.slice(),
+        journeys: board.journeys.length ? board.journeys : SEED_JOURNEYS,
+        selection: [],
+        inspectorOpen: false,
+        screen: null,
+      });
+    },
+    [update],
+  );
+
+  /** Open an existing board folder in `space`: pick a folder, require a board.md,
+   *  then load it as the active board. */
+  const openBoardIn = useCallback(
+    async (space: BoardTarget) => {
+      try {
+        const res = await pickFile({
+          mode: 'open-folder',
+          roots: [await boardSpaceRoot(space)],
+          rootLabels: ['Your board space'],
+          rootModes: [space.mode],
+          title: 'Open board',
+        });
+        if (!res) return;
+        const rel = safeRel(res.relPath);
+        if (!rel) {
+          toast('That folder can’t be opened.', 'alert', { iconColor: '#caa24a' });
+          return;
+        }
+        const candidate: BoardTarget = { root: subPath(space.root, rel), mode: space.mode, spaceId: space.spaceId };
+        if (!(await folderIsBoard(candidate)) && !(await boardExists(candidate))) {
+          toast('That folder isn’t a board (no board.md). Open folder again to pick another.', 'alert', {
+            iconColor: '#caa24a',
+          });
+          return;
+        }
+        await loadBoardInto(candidate);
+        toast('Board opened.', 'check');
+      } catch (e) {
+        toast(`Couldn’t open board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      }
+    },
+    [toast, loadBoardInto],
+  );
+
+  /** New board: pick (or create) a folder in `space`, scaffold board.md, open it. */
+  const newBoardIn = useCallback(
+    async (space: BoardTarget) => {
+      if (space.mode === 'ro') {
+        toast('That space is read-only — you can’t create a board there.', 'lock', { iconColor: 'var(--ink-2)' });
+        return;
+      }
+      try {
+        const res = await pickFile({
+          mode: 'open-folder',
+          roots: [await boardSpaceRoot(space)],
+          rootLabels: ['Your board space'],
+          rootModes: [space.mode],
+          title: 'New board · choose a folder',
+          allowCreateFolder: true,
+        });
+        if (!res) return;
+        const rel = safeRel(res.relPath);
+        if (!rel) {
+          toast('That folder can’t be used.', 'alert', { iconColor: '#caa24a' });
+          return;
+        }
+        const candidate: BoardTarget = { root: subPath(space.root, rel), mode: 'rw', spaceId: space.spaceId };
+        const title = rel.split('/').pop() || 'Untitled board';
+        await writeNewBoard(candidate, title);
+        await loadBoardInto(candidate);
+        toast('Board created.', 'check');
+      } catch (e) {
+        toast(`Couldn’t create board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      }
+    },
+    [toast, loadBoardInto],
+  );
+
+  /** Open / new board against the CURRENT board space (the chooser's footer). */
+  const openBoard = useCallback(() => {
+    const space = boardRef.current;
+    if (!space) {
+      toast('Sign in to open a board from your space.', 'save', { iconColor: 'var(--ink-2)' });
+      return;
+    }
+    void openBoardIn(space);
+  }, [toast, openBoardIn]);
+
+  const newBoard = useCallback(() => {
+    const space = boardRef.current;
+    if (!space) {
+      toast('Sign in to create a board in your space.', 'save', { iconColor: 'var(--ink-2)' });
+      return;
+    }
+    void newBoardIn(space);
+  }, [toast, newBoardIn]);
+
+  /** "Add a space": the host powerbox grants a NEW space (never this app, §2),
+   *  then we offer to open a board in it. */
+  const addSpace = useCallback(async () => {
+    try {
+      const granted = await requestSpace();
+      if (!granted) return; // cancelled
+      const space: BoardTarget = { root: granted.path, mode: granted.mode, spaceId: granted.id };
+      await openBoardIn(space);
+    } catch (e) {
+      toast(`Couldn’t add a space${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+    }
+  }, [toast, openBoardIn]);
+
   const patchObject = useCallback(
     (id: string, patch: Partial<WObject>) => {
       update((s) => ({ objects: s.objects.map((o) => (o.id === id ? { ...o, ...patch } : o)) }));
@@ -774,24 +965,31 @@ export function useWhiteboard() {
       }
       if (cancelled) return;
       // A live role-downgrade re-announces the mount as `ro`; removal tears it down.
-      unsub = onMountsChange((mounts, removed) => {
-        const cur = boardRef.current;
-        if (!cur) return;
-        const m = mounts.find((x) => (cur.spaceId ? x.id === cur.spaceId : x.path === cur.root));
-        if (m) {
-          const mode = m.mode === 'ro' ? 'ro' : 'rw';
-          if (mode !== cur.mode) {
-            boardRef.current = { ...cur, mode };
-            if (mode === 'ro') {
-              update({ mode: 'run', selection: [], inspectorOpen: false });
-              toast('Your access changed to read-only.', 'lock', { iconColor: 'var(--ink-2)' });
+      // The mount service needs the host runtime, which is absent under local
+      // `vite dev` — there the board is a static on-disk dir with no role changes,
+      // so skip the subscription rather than crash.
+      try {
+        unsub = onMountsChange((mounts, removed) => {
+          const cur = boardRef.current;
+          if (!cur) return;
+          const m = mounts.find((x) => (cur.spaceId ? x.id === cur.spaceId : x.path === cur.root));
+          if (m) {
+            const mode = m.mode === 'ro' ? 'ro' : 'rw';
+            if (mode !== cur.mode) {
+              boardRef.current = { ...cur, mode };
+              if (mode === 'ro') {
+                update({ mode: 'run', selection: [], inspectorOpen: false });
+                toast('Your access changed to read-only.', 'lock', { iconColor: 'var(--ink-2)' });
+              }
             }
+          } else if (removed.some((r) => (cur.spaceId ? r.id === cur.spaceId : r.path === cur.root))) {
+            boardRef.current = null;
+            toast('Board space disconnected.', 'alert', { iconColor: 'var(--ink-2)' });
           }
-        } else if (removed.some((r) => (cur.spaceId ? r.id === cur.spaceId : r.path === cur.root))) {
-          boardRef.current = null;
-          toast('Board space disconnected.', 'alert', { iconColor: 'var(--ink-2)' });
-        }
-      });
+        });
+      } catch {
+        // No host runtime (local `vite dev`): no live mount updates to track.
+      }
     })();
     return () => {
       cancelled = true;
@@ -828,6 +1026,11 @@ export function useWhiteboard() {
     patchObject,
     deleteSelection,
     createObject,
+    // pick-file flows
+    insertImage,
+    openBoard,
+    newBoard,
+    addSpace,
     // views & journeys
     saveView,
     resolveView,

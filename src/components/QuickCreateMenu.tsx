@@ -1,6 +1,7 @@
 // Double-click-empty-canvas quick create (spec §4.2). Drops the new object at
-// the clicked world point. "Image…" will route through the pick-file task once
-// that contract lands (D1); for now it creates an image placeholder.
+// the clicked world point. "Image…" routes through the pick-file task
+// (`wb.insertImage` → the platform file dialog + asset copy-in); the rest create
+// their object directly.
 
 import { useWb } from '../hooks/useWhiteboardCtx';
 import Icon from './Icon';
@@ -42,7 +43,7 @@ function QuickCreateMenu() {
       {ITEMS.map((it) => (
         <button
           key={it.kind}
-          onClick={() => wb.createObject(it.kind, qm.wx, qm.wy)}
+          onClick={() => (it.kind === 'img' ? wb.insertImage(qm.wx, qm.wy) : wb.createObject(it.kind, qm.wx, qm.wy))}
           style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 10px', background: 'none', border: 'none', borderRadius: 8, color: 'var(--ink)', font: 'var(--body-sm)', cursor: 'pointer', textAlign: 'left' }}
           onMouseEnter={(e) => (e.currentTarget.style.background = 'var(--panel-2)')}
           onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
