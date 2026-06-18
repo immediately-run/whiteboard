@@ -11,7 +11,13 @@ import { devFs } from '@immediately-run/dev-fs'
 // local `vite dev`, bridging the same async ZenFS surface immediately.run
 // provides to your real disk. It is dev-only and absent from production builds.
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  // `__WB_DEV__` is true under `vite dev` (command === 'serve'), false in a
+  // production build. boardStore.ts reads it instead of `import.meta.env.DEV`,
+  // because immediately.run transpiles modules to CommonJS where `import.meta`
+  // is a parse-time error. immediately.run never runs Vite, so the identifier is
+  // absent there and a `typeof` guard treats it as falsy.
+  define: { __WB_DEV__: JSON.stringify(command === 'serve') },
   plugins: [
     devFs(),
     { enforce: 'pre', ...mdx() },
@@ -24,4 +30,4 @@ export default defineConfig({
   build: {
     rollupOptions: { external: ['fs', 'node:fs'] },
   },
-})
+}))
