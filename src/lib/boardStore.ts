@@ -76,6 +76,16 @@ async function readDirSafe(path: string): Promise<string[]> {
 // Vite's HMR file watcher by default, so autosaves don't trigger a page reload.
 const DEV_BOARD_ROOT = '/devfs-playground/board';
 
+// Injected by Vite's `define` (see vite.config.ts): `true` under `vite dev`,
+// `false` in a production build. immediately.run transpiles this file RAW — it
+// never runs Vite — so the identifier is simply absent there and the `typeof`
+// guard below reads it as falsy. We must NOT write `import.meta` in this file:
+// the sandbox compiles modules to CommonJS and evaluates them as classic
+// scripts, where `import.meta` is a parse-time SyntaxError ("Cannot use
+// 'import.meta' outside a module"). That fails before any code runs, so a `?.`
+// runtime guard can't help — the token itself has to stay out of the source.
+declare const __WB_DEV__: boolean | undefined;
+
 /**
  * Open the signed-in user's board space (the §8.6 zero-config path). Rejects
  * with a SpaceError (`.code` = `auth-required` | `cancelled` | `forbidden`)
@@ -84,11 +94,10 @@ const DEV_BOARD_ROOT = '/devfs-playground/board';
  */
 export async function openBoardTarget(slot = 'default'): Promise<BoardTarget> {
   // Local `vite dev`: persist to disk via dev-fs at a fixed root, since the
-  // platform space API needs a host that isn't there. `import.meta.env.DEV` is
-  // true only under `vite dev`; on immediately.run it is absent/falsy and the
-  // real per-user space path below is used. (`?.` guards the case where the
-  // runtime doesn't define `import.meta.env` at all.)
-  if (import.meta.env?.DEV) {
+  // platform space API needs a host that isn't there. On immediately.run
+  // `__WB_DEV__` is absent, so this branch is skipped and the real per-user
+  // space path below is used.
+  if (typeof __WB_DEV__ !== 'undefined' && __WB_DEV__) {
     return { root: `${DEV_BOARD_ROOT}/${slot}`, mode: 'rw' };
   }
   const mount: SandboxMount = await openAppSpace(slot);

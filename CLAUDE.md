@@ -27,7 +27,15 @@ local `vite dev` — the most common silent failure.
    reference server paths that won't exist in the sandbox.
 8. **No Node / build-time-only APIs** in the rendered tree — it runs in a browser
    iframe. `localStorage`, `document`, `window`, and `fetch` are available.
-9. **MDX is only for long-form prose** (articles, guides). Structured/repeated
+9. **Never write the `import.meta` token** (`import.meta.env`, `import.meta.url`,
+   even `typeof import.meta`). Vite replaces it at build time, so it looks fine in
+   `vite dev` — but immediately.run transpiles each module to **CommonJS** and
+   runs it as a classic script, where `import.meta` is a **parse-time
+   `SyntaxError` ("Cannot use 'import.meta' outside a module")**. It fails before
+   any code runs, so a `?.` runtime guard can't save it. For dev-only branches,
+   inject a flag via Vite `define` and read it behind a `typeof` guard (see
+   `__WB_DEV__` in `vite.config.ts` / `src/lib/boardStore.ts`).
+10. **MDX is only for long-form prose** (articles, guides). Structured/repeated
    data stays as typed arrays in `src/data/`. If you add `.mdx`, the Vite plugin
    and `src/mdx.d.ts` shim are already wired up.
 
