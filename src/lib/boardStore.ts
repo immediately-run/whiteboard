@@ -2,8 +2,11 @@
 // §5.2): it reads and writes the board's `.mdx`/`.md` files through the async
 // `fs` module immediately.run exposes to the sandbox (ZenFS over a MessagePort
 // in production; the @immediately-run/dev-fs bridge to real disk under `vite
-// dev`). The board lives under a `boardRoot` directory — a per-user app space
-// (`openAppSpace`), so writes are durable and private to the signed-in user.
+// dev`). The board lives under a `boardRoot` directory inside this app's per-user
+// **settings** mount (`openSettings` — a private `~/.config`-style filesystem,
+// baseline `settings:app`), so writes are durable and private to the signed-in
+// user. (The platform's old per-app-space `openAppSpace` slot API was removed;
+// settings is the per-user app-private store — each `slot` becomes a subdir.)
 //
 // Everything here is async and dependency-free. Mutations are "write the one
 // file that changed" (one object = one file = the unit of conflict, §2.1); we
@@ -16,7 +19,7 @@ import fs from 'fs';
 // `no host transport` under local `vite dev` (no host) before any of our
 // try/catch can run. The `/mounts` subpath pulls in only the space/mount API,
 // which is side-effect-free until actually called.
-import { openAppSpace } from '@immediately-run/sdk/mounts';
+import { openSettings } from '@immediately-run/sdk/mounts';
 import type { SandboxMount } from '@immediately-run/sdk/mounts';
 import {
   parseJourney,
@@ -100,8 +103,10 @@ export async function openBoardTarget(slot = 'default'): Promise<BoardTarget> {
   if (typeof __WB_DEV__ !== 'undefined' && __WB_DEV__) {
     return { root: `${DEV_BOARD_ROOT}/${slot}`, mode: 'rw' };
   }
-  const mount: SandboxMount = await openAppSpace(slot);
-  return { root: mount.path, mode: mount.mode === 'ro' ? 'ro' : 'rw', spaceId: mount.id };
+  // The per-user settings mount is a single filesystem; namespace each board
+  // under a `slot` subdir (same shape as the `__WB_DEV__` branch above).
+  const mount: SandboxMount = await openSettings();
+  return { root: `${mount.path}/${slot}`, mode: mount.mode === 'ro' ? 'ro' : 'rw', spaceId: mount.id };
 }
 
 /** True once the space has a board materialised (an `objects/` dir). */
