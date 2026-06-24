@@ -56,7 +56,6 @@ import {
   reportOpened,
   resolveDelegatedMount,
 } from '../lib/openProject';
-import type { DirCapParam } from '../lib/openProject';
 
 /** Join a mount root with a (validated, relative) path; collapse double slashes. */
 const subPath = (root: string, rel: string): string => `${root}/${rel}`.replace(/\/+/g, '/');
@@ -944,20 +943,20 @@ export function useWhiteboard() {
    * empty one is seeded so the canvas still renders.
    */
   const openDelegatedProject = useCallback(
-    async (dir: DirCapParam): Promise<boolean> => {
-      // The host announces the task chroot as a mount; it may not be present the
-      // instant we read the input, so poll briefly for it (a few frames).
-      const settled = boardRef.current?.root;
-      let mount = resolveDelegatedMount(dir, getMounts(), settled);
+    async (dirPath: string): Promise<boolean> => {
+      // The host announces the task chroot as a mount AT the delegated path; it
+      // may not be present the instant we read the input, so poll briefly (a few
+      // frames) for the mount whose `path` matches.
+      let mount = resolveDelegatedMount(dirPath, getMounts());
       for (let tries = 0; !mount && tries < 40; tries += 1) {
         await new Promise((r) => setTimeout(r, 50));
-        mount = resolveDelegatedMount(dir, getMounts(), settled);
+        mount = resolveDelegatedMount(dirPath, getMounts());
       }
       if (!mount) {
         toast('Couldn’t open that project — the folder isn’t available.', 'alert', { iconColor: '#caa24a' });
         return false;
       }
-      const target = dirCapToBoardTarget(dir, mount);
+      const target = dirCapToBoardTarget(mount);
       try {
         if (await boardExists(target)) {
           await loadBoardInto(target);

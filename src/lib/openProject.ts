@@ -27,29 +27,17 @@ declare const __WB_DEV__: boolean | undefined;
 
 const isDev = (): boolean => typeof __WB_DEV__ !== 'undefined' && !!__WB_DEV__;
 
-/** The directory-capability shape a `capDir` param carries (SDK `DirCap`). It is
- *  untrusted display/intent data (R-SPACES-11) — validate before acting on it. */
-export interface DirCapParam {
-  $cap: 'dir';
-  mountId: string;
-  relPath: string;
-  mode?: 'ro' | 'rw';
-}
-
-function isDirCap(v: unknown): v is DirCapParam {
-  if (!v || typeof v !== 'object') return false;
-  const c = v as Record<string, unknown>;
-  return c.$cap === 'dir' && typeof c.mountId === 'string';
-}
-
 /**
  * Read the task input we were launched with, IF we are running as the
- * `open-project` provider with a valid `dir` delegation. Returns the delegated
- * directory cap, or null for a normal launch (no task input / a different task /
- * a malformed param — all degrade silently, never throw, R-SPACES-11). Never
- * reached under `vite dev` (no host to deliver a task input).
+ * `open-project` provider. The host REWRITES the caller's `capDir` into a
+ * concrete chroot PATH STRING before delivering it (`/task/<slot>/dir`) — the
+ * same way `pick-file` delivers its `roots` as path strings, not cap objects —
+ * so the param is a string we read the board off of, not a `{ $cap }` object.
+ * Returns that path, or null for a normal launch (no task input / a different
+ * task / a malformed param — all degrade silently, never throw, R-SPACES-11).
+ * Never reached under `vite dev` (no host to deliver a task input).
  */
-export async function readOpenProjectInput(): Promise<DirCapParam | null> {
+export async function readOpenProjectInput(): Promise<string | null> {
   if (isDev()) return null;
   let input: { task: string; params: Record<string, unknown> } | null;
   try {
@@ -61,37 +49,29 @@ export async function readOpenProjectInput(): Promise<DirCapParam | null> {
   }
   if (!input || input.task !== OPEN_PROJECT_TASK) return null;
   const dir = input.params?.dir;
-  return isDirCap(dir) ? dir : null;
+  return typeof dir === 'string' && dir.length > 0 ? dir : null;
 }
 
 /**
- * Resolve the chroot the host mounted for a `capDir` delegation to a concrete
- * mount, so we can read the board off disk. The host chroots the callee AT the
- * delegated directory, announcing it as a normal mount — so the board root is
- * the mount's own `path`. We match the mount by `id` (the delegated `mountId`),
- * falling back to the lone other mount when the host reports a fresh task-path id
- * we can't pre-match (a task callee's world is small). `excludePath` drops the
- * app's own settings store from that fallback. Returns null if no such mount is
- * present yet (the caller can retry on `onMountsChange`).
+ * Find the chroot the host mounted for the delegated directory. The host mints
+ * the delegation mount AT the rewritten path the `dir` param carries, so the
+ * mount whose `path` equals `dirPath` IS our board root — an exact match, no id
+ * heuristic. Returns null if it hasn't been announced yet (the caller retries on
+ * `onMountsChange`).
  */
 export function resolveDelegatedMount(
-  dir: DirCapParam,
+  dirPath: string,
   mounts: SandboxMount[],
-  excludePath?: string,
 ): SandboxMount | null {
-  const byId = mounts.find((m) => m.id === dir.mountId || `space:${m.id}` === dir.mountId);
-  if (byId) return byId;
-  const candidates = mounts.filter((m) => m.path !== excludePath);
-  return candidates.length === 1 ? candidates[0] : null;
+  return mounts.find((m) => m.path === dirPath) ?? null;
 }
 
-/** Turn a resolved delegated mount + the dir cap into a board target. The mount
- *  is already chroot'd at the project folder, so its `path` is the board root;
- *  the effective mode is the narrower of the delegation and the granted mount. */
-export function dirCapToBoardTarget(dir: DirCapParam, mount: SandboxMount): BoardTarget {
-  const delegated = dir.mode === 'ro' ? 'ro' : 'rw';
-  const granted = mount.mode === 'ro' ? 'ro' : 'rw';
-  const mode: 'ro' | 'rw' = delegated === 'ro' || granted === 'ro' ? 'ro' : 'rw';
+/** Turn the resolved delegated mount into a board target. The mount is already
+ *  chroot'd at the project folder, so its `path` is the board root; the effective
+ *  mode is whatever the host granted on the chroot — already attenuated host-side
+ *  to the narrower of the caller's request and the underlying grant. */
+export function dirCapToBoardTarget(mount: SandboxMount): BoardTarget {
+  const mode: 'ro' | 'rw' = mount.mode === 'ro' ? 'ro' : 'rw';
   return { root: mount.path, mode, spaceId: mount.id };
 }
 
