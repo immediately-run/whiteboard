@@ -48,7 +48,15 @@ import { boardSpaceRoot, pickFile, requestSpace, safeRel } from '../lib/pickFile
 // Subpath import, not the package barrel: the barrel re-exports `./tasks`,
 // whose top-level `addListener` side effect throws `no host transport` at
 // module-eval time under local `vite dev`. `/mounts` is side-effect-free.
-import { onMountsChange } from '@immediately-run/sdk/mounts';
+import { getMounts, onMountsChange } from '@immediately-run/sdk/mounts';
+import {
+  abortOpenProject,
+  dirCapToBoardTarget,
+  readOpenProjectInput,
+  reportOpened,
+  resolveDelegatedMount,
+} from '../lib/openProject';
+import type { DirCapParam } from '../lib/openProject';
 
 /** Join a mount root with a (validated, relative) path; collapse double slashes. */
 const subPath = (root: string, rel: string): string => `${root}/${rel}`.replace(/\/+/g, '/');
@@ -926,42 +934,107 @@ export function useWhiteboard() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canvasEl]);
 
+  /**
+   * Provider side of `open-project` (SPACES_UI_SPEC §6): given the delegated
+   * `capDir`, find the chroot the host mounted for it, hydrate the canvas from
+   * it, and arm the durable-board machinery (autosave, downgrade watch) against
+   * it. Resolves true once the board is shown, false if the delegated folder
+   * never resolved to a mount (the caller then aborts the task). The folder is
+   * expected to already be a board (the marker only lives on board folders); an
+   * empty one is seeded so the canvas still renders.
+   */
+  const openDelegatedProject = useCallback(
+    async (dir: DirCapParam): Promise<boolean> => {
+      // The host announces the task chroot as a mount; it may not be present the
+      // instant we read the input, so poll briefly for it (a few frames).
+      const settled = boardRef.current?.root;
+      let mount = resolveDelegatedMount(dir, getMounts(), settled);
+      for (let tries = 0; !mount && tries < 40; tries += 1) {
+        await new Promise((r) => setTimeout(r, 50));
+        mount = resolveDelegatedMount(dir, getMounts(), settled);
+      }
+      if (!mount) {
+        toast('Couldn’t open that project — the folder isn’t available.', 'alert', { iconColor: '#caa24a' });
+        return false;
+      }
+      const target = dirCapToBoardTarget(dir, mount);
+      try {
+        if (await boardExists(target)) {
+          await loadBoardInto(target);
+        } else {
+          // The marker said this is a project folder but it has no objects yet:
+          // seed it so the user lands on a usable board, not a blank canvas.
+          boardRef.current = target;
+          const s = stateRef.current;
+          await seedBoard(target, { objects: s.objects, views: s.views, journeys: s.journeys });
+        }
+        toast('Project opened.', 'check');
+        return true;
+      } catch (e) {
+        toast(`Couldn’t open project${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+        return false;
+      }
+    },
+    [toast, loadBoardInto],
+  );
+
   // ---- open the durable board space, hydrate (or seed), watch for downgrades ----
   useEffect(() => {
     let cancelled = false;
     let unsub: (() => void) | undefined;
     const timers = saveTimers.current;
     (async () => {
-      let target: BoardTarget;
-      try {
-        // Auto-open the signed-in user's board space. Declined / signed-out
-        // rejects with a typed SpaceError — we degrade to the in-memory seed.
-        target = await openBoardTarget();
-      } catch {
-        if (!cancelled) toast('Working in memory — sign in to save your board.', 'save', { iconColor: 'var(--ink-2)' });
-        return;
+      // ── open-project provider path (SPACES_UI_SPEC §6, Phase 5) ───────────
+      // If a file manager launched us via the `open-project` task, it handed a
+      // `capDir` for the project folder; the host mounted that folder as a
+      // chroot. Load the board from it and complete the task, then arm the same
+      // downgrade watch below against the delegated mount. A normal launch (no
+      // task input) falls through to the durable-board path unchanged.
+      let delegated = false;
+      const dir = await readOpenProjectInput();
+      if (dir) {
+        const opened = await openDelegatedProject(dir);
+        if (opened) await reportOpened(true);
+        else await abortOpenProject();
+        if (cancelled) return;
+        // On success the canvas is chrooted at the project; skip the durable
+        // board space. On failure, fall through to the in-memory seed so the
+        // canvas still renders something rather than a blank app.
+        delegated = opened;
       }
-      if (cancelled) return;
-      boardRef.current = target;
-      try {
-        if (await boardExists(target)) {
-          const board = await loadBoard(target);
-          if (!cancelled) {
-            update({
-              objects: board.objects,
-              views: board.views.length ? board.views : SEED_VIEWS.slice(),
-              journeys: board.journeys.length ? board.journeys : SEED_JOURNEYS,
-            });
-            toast('Board loaded from your space.', 'check');
-          }
-        } else {
-          // First run on an empty space: persist the seed demo as the starting board.
-          const s = stateRef.current;
-          await seedBoard(target, { objects: s.objects, views: s.views, journeys: s.journeys });
-          if (!cancelled) toast('Board created in your space.', 'check');
+
+      if (!delegated) {
+        let target: BoardTarget;
+        try {
+          // Auto-open the signed-in user's board space. Declined / signed-out
+          // rejects with a typed SpaceError — we degrade to the in-memory seed.
+          target = await openBoardTarget();
+        } catch {
+          if (!cancelled) toast('Working in memory — sign in to save your board.', 'save', { iconColor: 'var(--ink-2)' });
+          return;
         }
-      } catch (e) {
-        if (!cancelled) toast(`Couldn't open board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+        if (cancelled) return;
+        boardRef.current = target;
+        try {
+          if (await boardExists(target)) {
+            const board = await loadBoard(target);
+            if (!cancelled) {
+              update({
+                objects: board.objects,
+                views: board.views.length ? board.views : SEED_VIEWS.slice(),
+                journeys: board.journeys.length ? board.journeys : SEED_JOURNEYS,
+              });
+              toast('Board loaded from your space.', 'check');
+            }
+          } else {
+            // First run on an empty space: persist the seed demo as the starting board.
+            const s = stateRef.current;
+            await seedBoard(target, { objects: s.objects, views: s.views, journeys: s.journeys });
+            if (!cancelled) toast('Board created in your space.', 'check');
+          }
+        } catch (e) {
+          if (!cancelled) toast(`Couldn't open board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+        }
       }
       if (cancelled) return;
       // A live role-downgrade re-announces the mount as `ro`; removal tears it down.
