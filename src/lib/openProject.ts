@@ -1,0 +1,99 @@
+// Provider side of the `open-project` task (SPACES_UI_SPEC §6, Phase 5
+// `05-capdir-open-with.md`). A file manager that finds an `opensWith`
+// marker on a whiteboard-project folder invokes the `open-project` contract,
+// handing the folder over as a directory capability (`capDir`). The host
+// resolves THIS app as the bound provider, mints a task-scoped chroot rooted at
+// that folder, and launches us with the folder already mounted. Here we read
+// the task input, locate that chroot among our mounts, and hand back a
+// `BoardTarget` the controller loads the board from — then `completeTask`.
+//
+// Like `boardStore`/`pickFile`, the `@immediately-run/sdk` task module runs a
+// module-eval side effect (the `task-input` listener) that throws `no host
+// transport` under local `vite dev` (no host). So every entry point here is
+// async and LAZY-imports the SDK, and the whole feature is gated off under
+// `__WB_DEV__` (there is no host to deliver a task input locally anyway).
+
+import type { SandboxMount } from '@immediately-run/sdk/mounts';
+import type { BoardTarget } from './boardStore';
+
+/** The contract this app provides; the marker a project folder declares. */
+export const OPEN_PROJECT_TASK = 'open-project';
+export const OPEN_PROJECT_VERSION = '1.0';
+
+/** Injected by Vite `define` (see vite.config.ts): truthy under `vite dev`,
+ *  absent in a production build. Never write `import.meta` — it is a parse-time
+ *  SyntaxError in the immediately.run sandbox (CLAUDE.md rule 9). */
+declare const __WB_DEV__: boolean | undefined;
+
+const isDev = (): boolean => typeof __WB_DEV__ !== 'undefined' && !!__WB_DEV__;
+
+/**
+ * Read the task input we were launched with, IF we are running as the
+ * `open-project` provider. The host REWRITES the caller's `capDir` into a
+ * concrete chroot PATH STRING before delivering it (`/task/<slot>/dir`) — the
+ * same way `pick-file` delivers its `roots` as path strings, not cap objects —
+ * so the param is a string we read the board off of, not a `{ $cap }` object.
+ * Returns that path, or null for a normal launch (no task input / a different
+ * task / a malformed param — all degrade silently, never throw, R-SPACES-11).
+ * Never reached under `vite dev` (no host to deliver a task input).
+ */
+export async function readOpenProjectInput(): Promise<string | null> {
+  if (isDev()) return null;
+  let input: { task: string; params: Record<string, unknown> } | null;
+  try {
+    const { getTaskInput } = await import('@immediately-run/sdk');
+    input = getTaskInput();
+  } catch {
+    // No host transport (or the module threw): we are not a task callee.
+    return null;
+  }
+  if (!input || input.task !== OPEN_PROJECT_TASK) return null;
+  const dir = input.params?.dir;
+  return typeof dir === 'string' && dir.length > 0 ? dir : null;
+}
+
+/**
+ * Find the chroot the host mounted for the delegated directory. The host mints
+ * the delegation mount AT the rewritten path the `dir` param carries, so the
+ * mount whose `path` equals `dirPath` IS our board root — an exact match, no id
+ * heuristic. Returns null if it hasn't been announced yet (the caller retries on
+ * `onMountsChange`).
+ */
+export function resolveDelegatedMount(
+  dirPath: string,
+  mounts: SandboxMount[],
+): SandboxMount | null {
+  return mounts.find((m) => m.path === dirPath) ?? null;
+}
+
+/** Turn the resolved delegated mount into a board target. The mount is already
+ *  chroot'd at the project folder, so its `path` is the board root; the effective
+ *  mode is whatever the host granted on the chroot — already attenuated host-side
+ *  to the narrower of the caller's request and the underlying grant. */
+export function dirCapToBoardTarget(mount: SandboxMount): BoardTarget {
+  const mode: 'ro' | 'rw' = mount.mode === 'ro' ? 'ro' : 'rw';
+  return { root: mount.path, mode, spaceId: mount.id };
+}
+
+/** Tell the caller we opened the project (or couldn't). Lazy-imports the SDK and
+ *  swallows the no-host case so a stray call under `vite dev` never throws. */
+export async function reportOpened(opened: boolean): Promise<void> {
+  if (isDev()) return;
+  try {
+    const { completeTask } = await import('@immediately-run/sdk');
+    completeTask({ opened });
+  } catch {
+    // No host transport: nothing to report to.
+  }
+}
+
+/** Abort the task (e.g. the delegated folder never resolved to a mount). */
+export async function abortOpenProject(): Promise<void> {
+  if (isDev()) return;
+  try {
+    const { cancelTask } = await import('@immediately-run/sdk');
+    cancelTask();
+  } catch {
+    // No host transport.
+  }
+}

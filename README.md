@@ -60,6 +60,36 @@ Open-source actions currently surface the task invocation as a toast:
 The `package.json` manifest declares exactly the three tasks the spec's §7
 names — no capability is added ahead of a spec change.
 
+## Open a folder *as* a whiteboard project (`open-project`)
+
+The whiteboard **provides** the `open-project` task contract (SPACES_UI_SPEC §6,
+spaces-ui Phase 5). A folder declares that it is a whiteboard project with an
+in-directory marker — the `immediately.run` field of its `package.json`, or a
+small `immediately.run.json` at the folder root:
+
+```jsonc
+// immediately.run.json  (a whiteboard project folder)
+{
+  "opensWith": { "task": "open-project", "version": "1.0" },
+  "kind": "whiteboard-project"
+}
+```
+
+A file manager that finds that marker on a readable folder offers **"Open
+project."** Choosing it invokes the `open-project` contract, delegating the
+folder as a directory capability (`capDir`) — *narrowing a grant the file
+manager already holds, no new authority, no consent prompt* (R-SPACES-9/11). The
+host resolves the bound provider (the whiteboard by default, user-overridable),
+mounts the folder as a task-scoped chroot, and launches the app. On boot the
+whiteboard reads `useTaskInput()`, locates that mount, loads the board from it,
+and calls `completeTask({ opened: true })`. A normal launch (no task input) is
+unaffected — it opens the user's durable board space as before.
+
+A runnable demo project folder lives in `fixtures/sample-project/` (the marker
+plus a `board.md` and two object files). The provider logic is in
+`src/lib/openProject.ts`, wired into the controller's boot effect in
+`src/hooks/useWhiteboard.ts`.
+
 ## Develop
 
 ```bash
