@@ -139,8 +139,11 @@ re-read** that multiplayer needs — build it once, it serves both.
    host; reuse the click-to-load placeholder as the preview.
 4. **Camera-settled event + static-affine region composition** — overlay the live mini-app only
    at rest, via `project(cam, vp, …)`.
-5. **The self-authoring agent mini-app** + observe/context contract, scoped to the board mount;
-   the patch interface as the agent↔whiteboard protocol.
+5. **Wire the platform workbench agent** against the board mount + the observe/context contract
+   (the agent is the workbench agent under the editing-session principal — *not* a whiteboard
+   self-authoring mini-app — and it writes the board filesystem directly; there is **no** patch
+   interface). *(Corrected 2026-06-27 per `AGENT_AUTHORING_ARCHITECTURE.md` §3; the prior
+   "self-authoring agent mini-app + patch protocol" build step is retired.)*
 6. **Undo + per-object conflict handling** — benign single-user gaps become requirements once an
    agent is a concurrent writer.
 
@@ -161,5 +164,6 @@ None contradicts the model — they are its build order.
    whole multiplayer story for light async collaboration, or a single-merge-authority is needed
    for non-git boards.
 
-See `specs/AGENT_AUTHORING_ARCHITECTURE.md` in the docs repo for the platform-level model, the
-self-authoring agent principal, and the consolidated platform deltas.
+See `specs/AGENT_AUTHORING_ARCHITECTURE.md` in the docs repo for the platform-level model (the
+workbench agent under the editing-session principal — the "self-authoring agent principal" is
+retired), and the consolidated platform deltas.
