@@ -1,10 +1,24 @@
-# Whiteboard — agent authoring (proposal)
+# Whiteboard (Lodestar) — agent authoring (proposal)
 
-**Status:** design note (proposal) · **Updated:** 2026-06-26
+**Status:** design note (proposal) · **Updated:** 2026-06-27
 **Platform source of truth:** the immediately-run **docs** repo,
 `specs/AGENT_AUTHORING_ARCHITECTURE.md` — the cross-app architecture. This note is the
 **whiteboard-specific** application of it. (Grove is the sibling application; see
 `grove/docs/product-defs/grove-agent-authoring.md`.)
+
+> *(Naming, 2026-06-27 — whiteboard is being renamed **Lodestar**. This note keeps "whiteboard"
+> for the repo/code until the rename lands; read "whiteboard" and "Lodestar" as the same app.)*
+
+> *(Reconciliation, 2026-06-27 — the platform note was rewritten and now **supersedes** two
+> mechanisms here. (1) **No "self-authoring agent principal."** The agent is the platform
+> **workbench agent** under the **editing-session principal**, used as-is — not a whiteboard-hosted
+> mini-app. (2) **No semantic-patch interface — the agent writes the board filesystem directly.**
+> Whiteboard does not validate/apply patches; it is a renderer that re-reads on `onFsChange`, and
+> as a **direct-manipulation** app it holds a low-stakes `rw` board mount so dragging writes
+> geometry. The clean-exemplar framing, the deltas list, and the file-per-object conflict model
+> below all remain correct; only the agent's principal and write path change. Observation
+> (`diagnostics:read`, `render:read`) survives as the workbench agent's subject-scoped view of the
+> running board; `chat()` is egress, gated on TS-5b.)*
 
 First-class agent authoring is **aspirational** for whiteboard today (there is no agent, no
 chat, no diagnostics wired). This note records the target architecture so the build order is
@@ -42,6 +56,13 @@ pieces, listed as deltas below.
 render:read (subject), ipc → whiteboard }` and **nothing else** (no `net:fetch`, no secrets, no
 foreign mounts, **no board write**). Its `rw` reach, when it has any, is scoped to the **board
 mount** — it structurally cannot touch whiteboard's engine source.
+
+> *(Superseded 2026-06-27 by `AGENT_AUTHORING_ARCHITECTURE.md` §3. The agent is the **workbench
+> agent** under the **editing-session principal**, not a whiteboard-hosted mini-app with a bespoke
+> principal. It writes the board filesystem directly (an editing-session write), so the "no board
+> write / proposes via patches" framing is replaced by direct file writes reconciled at the gate.
+> The good structural property — the agent touches the **board mount**, never whiteboard's engine
+> source — still holds, because the board lives in a separate mount from the app repo.)*
 
 **The agent proposes; whiteboard applies.** The agent emits semantic patches over the IPC edge;
 whiteboard — which owns the object model — validates and writes:
