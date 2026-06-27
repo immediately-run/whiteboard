@@ -89,18 +89,24 @@ Scope is **light async collaboration**, not real-time multi-cursor (that would n
 substrate and break the file-writer model). Agent patches, local direct manipulation, and a
 remote collaborator all become writes to the board mount, surfaced by `onFsChange`.
 
+> *(Superseded 2026-06-27 by `AGENT_AUTHORING_ARCHITECTURE.md` §7.2 — the field-merge, chained
+> resolvers, and per-author undo below are **retired for V1**. V1 conflict is **file-level**, two
+> existing mechanisms: `buffer.ts` block-on-dirty (open text) + `RemoteOverwriteEmitter`
+> (closed-file/delete/binary). **Field-aware merge** (geometry last-write-per-field, `connections`
+> set-union, body 3-way, `tags` set) is the **deferred V2 CRDT track** — so the "field is the unit
+> of conflict" framing is a V2 property; in V1 a same-*object*-file overlap (e.g. a drag's geometry
+> vs. an agent's body rewrite) is **whole-file LWW**, recoverable-post-hoc, **not** field-merged.
+> **Undo is per-working-tree-timeline, not per-author** (`FILESYSTEM_SPEC §5` tracks no provenance).
+> The direct-manipulation rw board writer is **not** serialized by the single-author lease — that
+> lease bounds *agents*, not FS 2.)*
+
 - **File-per-object partitions most conflict away** — two writers on different objects never
   conflict.
-- **Within an object, merge by field** — geometry (`x,y,w,h,rot`) is last-write-per-field (you
-  can't merge two positions), `connections` is a set-union, `body` is text 3-way, `tags` is set
-  merge. A human **dragging** O while the agent **rewrites its body** is disjoint and merges
-  cleanly; only a true same-field overlap blocks. (So "one object = one file = unit of conflict"
-  is *almost* right — the object is the unit of storage, the **field** is the unit of conflict.)
-- **Chained resolvers** — whiteboard's object-aware resolver → MDX/text structural merge →
-  generic text → terminal (git PR if the board is a git repo; else last-write or a
-  *user-initiated* agent-diff).
-- **Backstops** — semantic staleness caught by human review at the gate; **per-author-scoped
-  undo** (your gestures + your agent's ops, not a collaborator's).
+- ~~**Within an object, merge by field** … **Chained resolvers** … **per-author-scoped undo**~~ →
+  **V1 is file-level** (`buffer.ts` open-text + `RemoteOverwriteEmitter`); field-merge/resolvers
+  deferred V2; undo is per-working-tree-timeline (see the superseding note above). The durable
+  terminal is git PR (git board) or detect-after-clobber (non-git); semantic staleness is caught at
+  human review of the save/publish diff.
 
 Crucially, making the agent's writes appear live needs the **same `onFsChange`-driven per-object
 re-read** that multiplayer needs — build it once, it serves both.
