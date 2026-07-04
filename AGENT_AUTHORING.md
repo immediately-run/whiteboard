@@ -117,7 +117,12 @@ re-read** that multiplayer needs — build it once, it serves both.
 
 1. **MDX-from-mount gate** — compile + render object bodies inline (today bodies are static
    text; the `component` kind is a stub). The enabling step for inline content-logic; safe by
-   the no-standing-high-stakes-authority invariant.
+   the no-standing-high-stakes-authority invariant. **This delta is not whiteboard-private:**
+   it is the platform-general capability specced once in the docs repo's
+   `specs/MDX_FROM_MOUNT_SPEC.md`, shared with **Grove**'s dispatched-wiki consumer. The
+   Phase-0 pipeline spike (`WHITEBOARD_SPEC §11`, `MDX_FROM_MOUNT_SPEC §3`) settles the
+   `Include`/`dynamicImport`-vs-runtime-`evaluate()` choice for **both** consumers at once —
+   run it once, both ride it.
 2. **`onFsChange`-driven per-object re-read** — live external writes (absent today). Serves both
    agent authoring and multiplayer; required for the loop to close.
 3. **Re-architect `embed`/`component` → host-brokered mini-app** — move iframe ownership to the
