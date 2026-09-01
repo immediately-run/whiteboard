@@ -12,7 +12,7 @@
 // `steps`) as a single inline-JSON line — valid YAML flow syntax, trivially
 // parsed back with `JSON.parse`.
 
-import type { Connection, Journey, JourneyStep, View, WObject } from './types';
+import type { Background, Connection, Journey, JourneyStep, View, WObject } from './types';
 
 type Scalar = string | number | boolean;
 
@@ -164,4 +164,50 @@ export function parseJourney(id: string, text: string): Journey {
     title: typeof fm.title === 'string' ? (fm.title as string) : id,
     steps: Array.isArray(fm.steps) ? (fm.steps as JourneyStep[]) : [],
   };
+}
+
+// --- board manifest ⇄ board.md ----------------------------------------------
+
+/** What `board.md` contributes to a board (spec §2.4): name, background, schema. */
+export interface BoardManifest {
+  title?: string;
+  background?: Background;
+  /** The manifest's schema version; newer than the reader's marks the board readonly. */
+  schema?: number;
+}
+
+/**
+ * Parse a `board.md` manifest (spec §2.4). Tolerates absence and malformation —
+ * returns a partial result with whatever fields parse, never throws (R-SPACES-11
+ * degrade-never-throw: a malformed manifest must not stop the board loading).
+ * `background` is either a bare kind (`dots`) or the `{ kind, size }` object the
+ * app itself writes; `size` is a grid-pitch control the renderer does not yet
+ * honour, so only `kind` is read (R3-401 settles the writer/model shape).
+ */
+export function parseManifest(text: string): BoardManifest {
+  const m: BoardManifest = {};
+  const { fm } = splitDoc(text);
+  if (typeof fm.title === 'string' && fm.title) m.title = fm.title as string;
+  if (typeof fm.schema === 'number') m.schema = fm.schema as number;
+  const bg = fm.background;
+  if (typeof bg === 'string') {
+    // Bare kind (`dots`) or the `{ kind: grid, size: 24 }` inline object the
+    // app writes (the YAML subset parser leaves it as a raw string).
+    const bare = bgKind(bg.trim());
+    if (bare) m.background = bare;
+    else {
+      const fromObj = bgKind(/kind\s*:\s*["']?([A-Za-z]+)/.exec(bg)?.[1]);
+      if (fromObj) m.background = fromObj;
+    }
+  } else if (bg && typeof bg === 'object') {
+    const kind = bgKind((bg as { kind?: unknown }).kind);
+    if (kind) m.background = kind;
+  }
+  return m;
+}
+
+/** Accept a bare background kind or an object's `kind` value; validate the union. */
+function bgKind(v: unknown): Background | null {
+  if (v === 'grid' || v === 'dots' || v === 'plain') return v;
+  return null;
 }

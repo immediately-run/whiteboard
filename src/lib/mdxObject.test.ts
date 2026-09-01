@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseView, serializeView } from './mdxObject';
+import { parseManifest, parseView, serializeView } from './mdxObject';
 import type { View } from './types';
 
 describe('view codec (R3-400)', () => {
@@ -26,5 +26,28 @@ describe('view codec (R3-400)', () => {
     expect(text).toContain('zoom: 3');
     expect(text).not.toContain('w:');
     expect(text).not.toContain('h:');
+  });
+});
+
+describe('board manifest (R3-401)', () => {
+  it('reads title, schema and a bare background kind', () => {
+    const m = parseManifest('---\ntitle: Pacific basin\nwhiteboard:\n  schema: 1\n  background: grid\n---\n');
+    expect(m.title).toBe('Pacific basin');
+    expect(m.schema).toBe(1);
+    expect(m.background).toBe('grid');
+  });
+
+  it('reads the { kind, size } object background the app used to write', () => {
+    const m = parseManifest('---\ntitle: Pacific basin\nwhiteboard:\n  schema: 1\n  background: { kind: dots, size: 24 }\n---\n');
+    expect(m.background).toBe('dots');
+  });
+
+  it('returns an empty result for a manifest with nothing useful', () => {
+    expect(parseManifest('---\n---\n')).toEqual({});
+    expect(parseManifest('not a manifest')).toEqual({});
+  });
+
+  it('tolerates an unparseable body without throwing', () => {
+    expect(() => parseManifest('---\nno-colon-here\n---\n')).not.toThrow();
   });
 });

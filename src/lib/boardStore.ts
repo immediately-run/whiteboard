@@ -23,18 +23,23 @@ import { openSettings } from '@immediately-run/sdk/mounts';
 import type { SandboxMount } from '@immediately-run/sdk/mounts';
 import {
   parseJourney,
+  parseManifest,
   parseObject,
   parseView,
   serializeJourney,
   serializeObject,
   serializeView,
 } from './mdxObject';
-import type { Journey, View, WObject } from './types';
+import type { Background, Journey, View, WObject } from './types';
 
 export interface Board {
   objects: WObject[];
   views: View[];
   journeys: Journey[];
+  /** Manifest data from `board.md` (title/background/schema), when present. */
+  title?: string;
+  background?: Background;
+  schema?: number;
 }
 
 export interface BoardTarget {
@@ -114,7 +119,8 @@ export async function boardExists(t: BoardTarget): Promise<boolean> {
   return exists(join(t.root, OBJECTS));
 }
 
-/** Read every object/view/journey file from the target into the document model. */
+/** Read every object/view/journey file from the target into the document model,
+ *  plus the `board.md` manifest (title/background/schema) when present. */
 export async function loadBoard(t: BoardTarget): Promise<Board> {
   const objFiles = (await readDirSafe(join(t.root, OBJECTS))).filter((f) => f.endsWith('.mdx'));
   const objects = await Promise.all(
@@ -128,7 +134,22 @@ export async function loadBoard(t: BoardTarget): Promise<Board> {
   const journeys = await Promise.all(
     jrnFiles.map(async (f) => parseJourney(f.replace(/\.md$/, ''), await fs.promises.readFile(join(t.root, JOURNEYS, f), 'utf8'))),
   );
-  return { objects, views, journeys };
+  const m = await loadManifest(t);
+  return { objects, views, journeys, ...m };
+}
+
+/**
+ * Read the board's `board.md` manifest (spec §2.4). Returns an empty object when
+ * the manifest is absent or unparseable — callers fall back to their defaults,
+ * never throw (R-SPACES-11 degrade-never-throw).
+ */
+export async function loadManifest(t: BoardTarget): Promise<Partial<Board>> {
+  const path = join(t.root, BOARD_MANIFEST);
+  try {
+    return parseManifest(await fs.promises.readFile(path, 'utf8'));
+  } catch {
+    return {};
+  }
 }
 
 /** Materialise a fresh board from seed data (first run on an empty space). */
@@ -207,14 +228,10 @@ export async function writeNewBoard(t: BoardTarget, title: string): Promise<void
   await fs.promises.mkdir(join(t.root, OBJECTS), { recursive: true });
   await fs.promises.mkdir(join(t.root, VIEWS), { recursive: true });
   await fs.promises.mkdir(join(t.root, JOURNEYS), { recursive: true });
-  const manifest = [
-    '---',
-    `title: ${title}`,
-    'whiteboard:',
-    '  schema: 1',
-    '  background: { kind: grid, size: 24 }',
-    '---',
-    '',
-  ].join('\n');
+  // The emitted shape agrees with the model: background is a bare kind. The old
+  // `{ kind: grid, size: 24 }` object form is still ACCEPTED by the reader (the
+  // corpus may carry it) but is no longer emitted — size is not yet honoured
+  // (R3-401 settles the writer/model agreement by dropping it).
+  const manifest = ['---', `title: ${title}`, 'whiteboard:', '  schema: 1', '  background: grid', '---', ''].join('\n');
   await fs.promises.writeFile(join(t.root, BOARD_MANIFEST), manifest, 'utf8');
 }
