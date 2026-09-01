@@ -1076,6 +1076,7 @@ export function useWhiteboard() {
   return {
     state,
     registerCanvas,
+    boardRoot: boardRef.current?.root ?? null,
     isMobile,
     // camera
     originX: (vw: number) => originX(state.cam, vw),
