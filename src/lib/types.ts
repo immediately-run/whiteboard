@@ -103,7 +103,11 @@ export type ViewTarget =
 export interface JourneyStep {
   view: string | { cx: number; cy: number; zoom: number; w?: number; h?: number };
   caption?: string;
+  /** Camera flight time in ms (R3-402 — the unit is stated in the spec + authoring guide). */
   duration?: number;
+  /** Dwell in ms: after arriving, pause this long before AUTO-advancing. Absent =
+   *  the journey stays input-driven (step through manually). Opt-in per step. */
+  hold?: number;
 }
 
 export interface Journey {

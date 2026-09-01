@@ -5,6 +5,7 @@
 
 import { useWb } from '../hooks/useWhiteboardCtx';
 import Icon from './Icon';
+import { implausibleDuration } from '../lib/journey';
 
 const fl: React.CSSProperties = { font: 'var(--mono-xs)', letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--ink-3)' };
 const miniBtn: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 9px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', color: 'var(--ink-2)', font: 'var(--mono-xs)', cursor: 'pointer' };
@@ -62,7 +63,17 @@ function JourneysPanel() {
                         <Icon name="alert" size={13} strokeWidth={2} />
                       </span>
                     )}
-                    <span style={{ font: 'var(--mono-xs)', color: 'var(--ink-3)' }}>{`${s.duration || 800}ms`}</span>
+                    {implausibleDuration(s.duration) ? (
+                      <span
+                        title={`duration ${s.duration}ms is too small for a camera flight — unit error or typo (R3-402)`}
+                        style={{ display: 'flex', color: '#caa24a' }}
+                      >
+                        <Icon name="alert" size={13} strokeWidth={2} />
+                      </span>
+                    ) : null}
+                    <span style={{ font: 'var(--mono-xs)', color: 'var(--ink-3)' }}>
+                      {s.hold ? `hold ${s.hold}ms` : `${s.duration || 800}ms fly`}
+                    </span>
                   </div>
                 ))}
                 <button onClick={() => wb.toast('Added current view as step', 'plus')} style={{ ...miniBtn, justifyContent: 'center', padding: 6 }}>

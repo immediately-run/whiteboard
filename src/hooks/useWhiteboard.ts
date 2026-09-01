@@ -136,8 +136,13 @@ export function useWhiteboard() {
   const registerCanvas = useCallback((el: HTMLDivElement | null) => setCanvasEl(el), []);
   const dragRef = useRef<Drag>(null);
   const tweenRef = useRef<number | null>(null);
+  const holdTimer = useRef<number | null>(null);
   const spaceRef = useRef(false);
   const toastSeq = useRef(0);
+  // Stable indirection for the dwell auto-advance: `goStep` schedules
+  // `playNextRef.current()` so the timer always calls the LATEST playNext
+  // (assigned after its useCallback is defined) — breaks the circular dep.
+  const playNextRef = useRef<() => void>(() => {});
 
   const [state, setState] = useState<WBState>(() => ({
     mode: 'run',
@@ -317,6 +322,17 @@ export function useWhiteboard() {
       const s = j.steps[idx];
       const v = resolveView(s.view);
       if (v) flyTo(v, instant ? 0 : s.duration ?? 800, stateRef.current.vp.vh - JOURNEY_FIT_INSET);
+      // Dwell (R3-402): a step carrying `hold` pauses that long after arriving,
+      // then AUTO-advances. Cleared by any viewer control (next/prev/seek/exit).
+      // Under prefers-reduced-motion the journey stays input-driven — matching
+      // flyTo's cut of the tween — so a viewer is never advanced unprompted.
+      if (holdTimer.current) {
+        clearTimeout(holdTimer.current);
+        holdTimer.current = null;
+      }
+      if (s.hold && !stateRef.current.reduced) {
+        holdTimer.current = window.setTimeout(() => playNextRef.current(), s.hold);
+      }
     },
     [resolveView, flyTo],
   );
@@ -325,6 +341,10 @@ export function useWhiteboard() {
     (jid: string) => {
       const j = stateRef.current.journeys.find((x) => x.id === jid);
       if (!j) return;
+      if (holdTimer.current) {
+        clearTimeout(holdTimer.current);
+        holdTimer.current = null;
+      }
       update({ journey: { jid, idx: 0 }, panelOpen: false, inspectorOpen: false });
       goStep(j, 0, true);
     },
@@ -333,12 +353,20 @@ export function useWhiteboard() {
 
   const playExit = useCallback(() => {
     if (tweenRef.current) cancelAnimationFrame(tweenRef.current);
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
     update({ journey: null });
   }, [update]);
 
   const playNext = useCallback(() => {
     const jr = stateRef.current.journey;
     if (!jr) return;
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
     const j = stateRef.current.journeys.find((x) => x.id === jr.jid);
     if (!j) return;
     const ni = jr.idx + 1;
@@ -349,10 +377,16 @@ export function useWhiteboard() {
     update({ journey: { ...jr, idx: ni } });
     goStep(j, ni);
   }, [update, goStep, playExit]);
+  // Keep the dwell timer's indirection pointed at the current playNext.
+  playNextRef.current = playNext;
 
   const playPrev = useCallback(() => {
     const jr = stateRef.current.journey;
     if (!jr) return;
+    if (holdTimer.current) {
+      clearTimeout(holdTimer.current);
+      holdTimer.current = null;
+    }
     const j = stateRef.current.journeys.find((x) => x.id === jr.jid);
     if (!j) return;
     const ni = Math.max(0, jr.idx - 1);
@@ -364,6 +398,10 @@ export function useWhiteboard() {
     (idx: number) => {
       const jr = stateRef.current.journey;
       if (!jr) return;
+      if (holdTimer.current) {
+        clearTimeout(holdTimer.current);
+        holdTimer.current = null;
+      }
       const j = stateRef.current.journeys.find((x) => x.id === jr.jid);
       if (!j) return;
       update({ journey: { ...jr, idx } });
@@ -1096,6 +1134,8 @@ export function useWhiteboard() {
       unsub?.();
       for (const h of timers.values()) clearTimeout(h);
       timers.clear();
+      if (holdTimer.current) clearTimeout(holdTimer.current);
+      holdTimer.current = null;
     };
     // Runs once on mount; reads live state via stateRef and stable callbacks.
     // eslint-disable-next-line react-hooks/exhaustive-deps

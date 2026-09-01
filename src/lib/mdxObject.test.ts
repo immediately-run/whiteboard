@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { parseManifest, parseView, serializeView } from './mdxObject';
-import type { View } from './types';
+import { parseJourney, parseManifest, parseView, serializeJourney, serializeView } from './mdxObject';
+import type { Journey, View } from './types';
 
 describe('view codec (R3-400)', () => {
   it('round-trips a legacy point view unchanged (no w/h emitted)', () => {
@@ -49,5 +49,30 @@ describe('board manifest (R3-401)', () => {
 
   it('tolerates an unparseable body without throwing', () => {
     expect(() => parseManifest('---\nno-colon-here\n---\n')).not.toThrow();
+  });
+});
+
+describe('journey codec (R3-402)', () => {
+  it('round-trips hold and duration on steps', () => {
+    const j: Journey = {
+      id: 'walkthrough',
+      title: 'Investor walkthrough',
+      steps: [
+        { view: 'overview', duration: 1200 },
+        { view: 'pricing-detail', hold: 2000, caption: 'Start here.' },
+      ],
+    };
+    const back = parseJourney('walkthrough', serializeJourney(j));
+    expect(back.steps[0].duration).toBe(1200);
+    expect(back.steps[1].hold).toBe(2000);
+    expect(back.steps[1].caption).toBe('Start here.');
+  });
+
+  it('steps without hold round-trip unchanged', () => {
+    const j: Journey = { id: 'v', title: 'V', steps: [{ view: 'a' }, { view: 'b', duration: 800 }] };
+    const back = parseJourney('v', serializeJourney(j));
+    expect(back.steps[0].hold).toBeUndefined();
+    expect(back.steps[0].duration).toBeUndefined();
+    expect(back.steps[1].duration).toBe(800);
   });
 });
