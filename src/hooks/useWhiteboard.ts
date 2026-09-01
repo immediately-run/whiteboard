@@ -72,6 +72,7 @@ interface WBState {
   mode: Mode;
   light: boolean;
   bg: Background;
+  title: string;
   cam: Camera;
   vp: Viewport;
   objects: WObject[];
@@ -110,6 +111,11 @@ const initialViewport = (): Viewport => ({
 
 const MOBILE_BREAKPOINT = 720;
 
+// The board-manifest schema version THIS reader understands. A manifest carrying
+// a higher `schema:` is from a newer reader — recognised but marked readonly (the
+// `readonly` degraded state, spec §2.4) rather than mis-rendered (R3-401).
+const SUPPORTED_SCHEMA = 1;
+
 // The usable height a journey-playing rect view fits into: the caption + controls
 // take roughly the bottom 240px of an 844px phone viewport (item R3-400), so a
 // fitted view must clear that band or the subject hides under the chrome.
@@ -137,6 +143,7 @@ export function useWhiteboard() {
     mode: 'run',
     light: false,
     bg: BOARD.background,
+    title: BOARD.title,
     cam: { cx: 250, cy: 150, zoom: 0.6 },
     vp: initialViewport(),
     objects: seedObjects(),
@@ -521,10 +528,18 @@ export function useWhiteboard() {
     async (target: BoardTarget) => {
       const board = await loadBoard(target);
       boardRef.current = target;
+      // The board.md manifest names the board (spec §2.4) — a board is a folder
+      // that can state its own name; fall back to the seed only when absent.
+      // A manifest schema newer than this reader marks the board readonly (the
+      // `readonly` degraded state), unless the mount itself is already ro.
+      const readonly = target.mode === 'ro' || (typeof board.schema === 'number' && board.schema > SUPPORTED_SCHEMA);
       update({
         objects: board.objects,
         views: board.views.length ? board.views : SEED_VIEWS.slice(),
         journeys: board.journeys.length ? board.journeys : SEED_JOURNEYS,
+        bg: board.background ?? stateRef.current.bg,
+        title: board.title ?? stateRef.current.title,
+        mode: readonly ? 'run' : stateRef.current.mode,
         selection: [],
         inspectorOpen: false,
         screen: null,

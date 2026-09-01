@@ -6,11 +6,10 @@
 
 import { useWb } from '../hooks/useWhiteboardCtx';
 import Icon from './Icon';
-import { BOARD } from '../data/seedBoard';
 
 function TopBar() {
   const wb = useWb();
-  const { mode, light, panelOpen, cam, views } = wb.state;
+  const { mode, light, panelOpen, cam, views, title } = wb.state;
   const mobile = wb.isMobile();
   const z = cam.zoom;
 
@@ -56,7 +55,7 @@ function TopBar() {
           }}
         >
           <span style={{ width: 18, height: 18, borderRadius: 5, background: 'var(--grad)', display: 'inline-block', transform: 'rotate(12deg)', flex: 'none' }} />
-          <span>{BOARD.title}</span>
+          <span>{title}</span>
           <span style={{ opacity: 0.55, display: 'inline-flex' }}>
             <Icon name="chevDown" size={15} strokeWidth={2} />
           </span>
