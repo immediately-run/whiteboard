@@ -2,7 +2,7 @@
 // mutate only `cam`; the world `<div>` carries one translate()+scale() so there
 // is no per-frame React reconciliation of object DOM. All functions are pure.
 
-import type { Camera } from './types';
+import type { Camera, ViewTarget } from './types';
 
 export const ZOOM_MIN = 0.02;
 export const ZOOM_MAX = 8;
@@ -48,4 +48,33 @@ export function zoomAround(cam: Camera, vp: Viewport, nz: number, lx?: number, l
     cy: wy - (ay - vp.vh / 2) / z,
     zoom: z,
   };
+}
+
+/**
+ * A camera that FITS a world rect into the viewport instead of magnifying a
+ * point: zoom = min(vw/w, vh/h) with the rect's center at the viewport center
+ * (R3-400). `fitH` lets the caller shrink the usable height — a journey playing
+ * on a phone must clear the caption band, so the rect fits above it. Pure.
+ */
+export function fitRect(
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+  vw: number,
+  fitH: number,
+): Camera {
+  const zoom = clampZoom(Math.min(vw / w, fitH / h));
+  return { cx, cy, zoom };
+}
+
+/**
+ * The camera a view target resolves to (R3-400). A target carrying a rect
+ * (`w`/`h`) is fitted to the usable viewport; a legacy `{cx, cy, zoom}` target —
+ * the only shape the camera can produce — keeps its zoom UNCHANGED, exactly as
+ * before. Pure; `flyTo` consumes this.
+ */
+export function cameraForTarget(t: ViewTarget, vw: number, fitH: number): Camera {
+  if (t.w && t.h) return fitRect(t.cx, t.cy, t.w, t.h, vw, fitH);
+  return { cx: t.cx, cy: t.cy, zoom: t.zoom };
 }
