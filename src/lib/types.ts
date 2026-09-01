@@ -80,16 +80,28 @@ export interface WObject {
   connections: Connection[];
 }
 
-/** A saved camera position (`views/*.md`, §2.2). cx/cy = world point centered. */
+/**
+ * A saved camera position (`views/*.md`, §2.2). cx/cy = world point centered;
+ * zoom = magnification. A view may OPTIONALLY carry a rect (`w`/`h`, world px,
+ * centered on cx/cy) instead — the app then fits the rect to the viewport at
+ * open time, so a view names a region, not just a magnification (R3-400).
+ */
 export interface View {
   name: string;
   cx: number;
   cy: number;
   zoom: number;
+  w?: number;
+  h?: number;
 }
 
+/** A camera target: a named view or an inline {cx, cy, zoom[, w, h]}. */
+export type ViewTarget =
+  | View
+  | { cx: number; cy: number; zoom: number; w?: number; h?: number };
+
 export interface JourneyStep {
-  view: string | { cx: number; cy: number; zoom: number };
+  view: string | { cx: number; cy: number; zoom: number; w?: number; h?: number };
   caption?: string;
   duration?: number;
 }

@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  cameraForTarget,
   clampZoom,
   originX,
   originY,
@@ -27,6 +28,7 @@ import type {
   ScreenKind,
   Toast,
   View,
+  ViewTarget,
   WObject,
 } from '../lib/types';
 import { BOARD, SEED_JOURNEYS, SEED_VIEWS, seedObjects } from '../data/seedBoard';
@@ -107,6 +109,11 @@ const initialViewport = (): Viewport => ({
 });
 
 const MOBILE_BREAKPOINT = 720;
+
+// The usable height a journey-playing rect view fits into: the caption + controls
+// take roughly the bottom 240px of an 844px phone viewport (item R3-400), so a
+// fitted view must clear that band or the subject hides under the chrome.
+const JOURNEY_FIT_INSET = 240;
 
 const prefersReducedMotion = (): boolean => {
   try {
@@ -238,9 +245,12 @@ export function useWhiteboard() {
 
   // ---- camera animation ----
   const flyTo = useCallback(
-    (target: { cx: number; cy: number; zoom: number } | null, dur?: number) => {
+    (target: ViewTarget | null, dur?: number, fitH?: number) => {
       if (!target) return;
-      const dest: Camera = { cx: target.cx, cy: target.cy, zoom: target.zoom };
+      // A view carrying a rect names a REGION, not a magnification: fit it to the
+      // usable viewport (R3-400). fitH (when given) is the usable height — the
+      // caption band during journey playback — so the subject clears the chrome.
+      const dest = cameraForTarget(target, stateRef.current.vp.vw, fitH ?? stateRef.current.vp.vh);
       if (tweenRef.current) cancelAnimationFrame(tweenRef.current);
       if (stateRef.current.reduced || !dur) {
         update({ cam: dest });
@@ -267,9 +277,12 @@ export function useWhiteboard() {
   );
 
   // ---- views & journeys ----
-  const resolveView = useCallback((v: View | string | { cx: number; cy: number; zoom: number }) => {
+  const resolveView = useCallback((v: ViewTarget | string) => {
     if (typeof v === 'string') return stateRef.current.views.find((x) => x.name === v) ?? null;
-    return { cx: v.cx, cy: v.cy, zoom: v.zoom };
+    const t: ViewTarget = { cx: v.cx, cy: v.cy, zoom: v.zoom };
+    if (v.w) t.w = v.w;
+    if (v.h) t.h = v.h;
+    return t;
   }, []);
 
   const saveView = useCallback(() => {
@@ -296,7 +309,7 @@ export function useWhiteboard() {
     (j: Journey, idx: number, instant?: boolean) => {
       const s = j.steps[idx];
       const v = resolveView(s.view);
-      if (v) flyTo(v, instant ? 0 : s.duration ?? 800);
+      if (v) flyTo(v, instant ? 0 : s.duration ?? 800, stateRef.current.vp.vh - JOURNEY_FIT_INSET);
     },
     [resolveView, flyTo],
   );

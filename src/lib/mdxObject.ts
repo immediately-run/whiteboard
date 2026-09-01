@@ -136,13 +136,19 @@ export function parseObject(id: string, text: string): WObject {
 // --- views ⇄ views/<name>.md ----------------------------------------------
 
 export function serializeView(v: View): string {
-  return frontmatter([`cx: ${v.cx}`, `cy: ${v.cy}`, `zoom: ${v.zoom}`]);
+  const lines = [`cx: ${v.cx}`, `cy: ${v.cy}`, `zoom: ${v.zoom}`];
+  if (typeof v.w === 'number') lines.push(`w: ${v.w}`);
+  if (typeof v.h === 'number') lines.push(`h: ${v.h}`);
+  return frontmatter(lines);
 }
 
 export function parseView(name: string, text: string): View {
   const { fm } = splitDoc(text);
   const n = (k: string) => (typeof fm[k] === 'number' ? (fm[k] as number) : 0);
-  return { name, cx: n('cx'), cy: n('cy'), zoom: typeof fm.zoom === 'number' ? (fm.zoom as number) : 1 };
+  const v: View = { name, cx: n('cx'), cy: n('cy'), zoom: typeof fm.zoom === 'number' ? (fm.zoom as number) : 1 };
+  if (typeof fm.w === 'number') v.w = fm.w as number;
+  if (typeof fm.h === 'number') v.h = fm.h as number;
+  return v;
 }
 
 // --- journeys ⇄ journeys/<id>.md ------------------------------------------
