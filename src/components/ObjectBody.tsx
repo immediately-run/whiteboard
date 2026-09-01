@@ -14,7 +14,7 @@ import EmbedObject from './library/EmbedObject';
 import ComponentError from './library/ComponentError';
 import type { WObject } from '../lib/types';
 
-function ObjectBody({ o }: { o: WObject }) {
+function ObjectBody({ o, boardRoot }: { o: WObject; boardRoot: string | null }) {
   switch (o.kind) {
     case 'note':
       return <StickyNote o={o} />;
@@ -27,7 +27,7 @@ function ObjectBody({ o }: { o: WObject }) {
     case 'shape':
       return <ShapeObject o={o} />;
     case 'img':
-      return <ImageObject o={o} />;
+      return <ImageObject o={o} boardRoot={boardRoot} />;
     case 'video':
       return <VideoObject o={o} />;
     case 'embed':
