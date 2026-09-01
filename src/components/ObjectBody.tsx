@@ -14,10 +14,10 @@ import EmbedObject from './library/EmbedObject';
 import ComponentError from './library/ComponentError';
 import type { WObject } from '../lib/types';
 
-function ObjectBody({ o, boardRoot }: { o: WObject; boardRoot: string | null }) {
+function ObjectBody({ o, boardRoot, objects }: { o: WObject; boardRoot: string | null; objects: WObject[] }) {
   switch (o.kind) {
     case 'note':
-      return <StickyNote o={o} />;
+      return <StickyNote o={o} objects={objects} />;
     case 'prose':
       return <ProseCard o={o} />;
     case 'label':

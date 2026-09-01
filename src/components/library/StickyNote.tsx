@@ -5,8 +5,9 @@
 import Badges from '../Badges';
 import type { WObject } from '../../lib/types';
 import { noteColorToken } from '../../lib/color';
+import { tagChipSuppressed } from '../../lib/geometry';
 
-function StickyNote({ o }: { o: WObject }) {
+function StickyNote({ o, objects }: { o: WObject; objects: WObject[] }) {
   return (
     <div
       style={{
@@ -23,7 +24,7 @@ function StickyNote({ o }: { o: WObject }) {
         overflow: 'hidden',
       }}
     >
-      {o.tags ? (
+      {o.tags && !tagChipSuppressed(o, objects) ? (
         <div style={{ font: 'var(--mono-xs)', letterSpacing: '.05em', textTransform: 'uppercase', opacity: 0.5 }}>
           {`#${o.tags}`}
         </div>
