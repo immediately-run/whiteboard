@@ -4,6 +4,7 @@
 
 import Badges from '../Badges';
 import type { WObject } from '../../lib/types';
+import { noteColorToken } from '../../lib/color';
 
 function StickyNote({ o }: { o: WObject }) {
   return (
@@ -11,7 +12,7 @@ function StickyNote({ o }: { o: WObject }) {
       style={{
         position: 'absolute',
         inset: 0,
-        background: `var(--n-${o.color ?? 'lemon'})`,
+        background: noteColorToken(o.color),
         color: 'var(--note-ink)',
         borderRadius: '2px 2px 2px 16px',
         padding: '14px 15px',

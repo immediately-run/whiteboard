@@ -65,7 +65,7 @@ export interface WObject {
   // content / presentation
   title?: string;
   tags?: string;
-  color?: NoteColor; // note
+  color?: NoteColor; // note, shape
   shape?: ShapeKind; // shape
   body?: string; // prose
   origin?: string; // embed target origin
