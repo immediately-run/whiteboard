@@ -11,11 +11,12 @@ interface ObjectFrameProps {
   o: WObject;
   mode: Mode;
   boardRoot: string | null;
+  objects: WObject[];
   onPointerDown: (id: string, e: React.PointerEvent) => void;
   onHover: (id: string | null) => void;
 }
 
-function ObjectFrame({ o, mode, boardRoot, onPointerDown, onHover }: ObjectFrameProps) {
+function ObjectFrame({ o, mode, boardRoot, objects, onPointerDown, onHover }: ObjectFrameProps) {
   const style: React.CSSProperties = {
     position: 'absolute',
     left: o.x,
@@ -36,7 +37,7 @@ function ObjectFrame({ o, mode, boardRoot, onPointerDown, onHover }: ObjectFrame
       onMouseEnter={() => onHover(o.id)}
       onMouseLeave={() => onHover(null)}
     >
-      <ObjectBody o={o} boardRoot={boardRoot} />
+      <ObjectBody o={o} boardRoot={boardRoot} objects={objects} />
     </div>
   );
 }

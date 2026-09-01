@@ -58,3 +58,25 @@ export function objectAtLocal(
   }
   return hit;
 }
+
+/** The frame (kind `frame`) that fully contains `o`, innermost (smallest area)
+ *  wins. Axis-aligned bounds; a frame is how grouping is drawn on a board
+ *  (R3-403 — a note inside a frame carrying the same tag wears the group name
+ *  twice, once on the frame and once on the card). */
+export function containingFrame(objects: WObject[], o: WObject): WObject | null {
+  let best: WObject | null = null;
+  for (const f of objects) {
+    if (f.kind !== 'frame') continue;
+    if (f.x <= o.x && f.y <= o.y && f.x + f.w >= o.x + o.w && f.y + f.h >= o.y + o.h) {
+      if (!best || f.w * f.h < best.w * best.h) best = f;
+    }
+  }
+  return best;
+}
+
+/** A note's tag chip is redundant when a containing frame already carries the
+ *  same tag — the group name is on screen once, on the frame (R3-403). */
+export function tagChipSuppressed(note: WObject, objects: WObject[]): boolean {
+  const frame = containingFrame(objects, note);
+  return !!frame && typeof frame.tags === 'string' && frame.tags === note.tags;
+}

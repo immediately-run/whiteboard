@@ -81,7 +81,7 @@ function Canvas() {
       <div style={worldStyle}>
         {visible.map((o) => (
           // Stable useCallbacks → the memoized ObjectFrame skips re-render on pan.
-          <ObjectFrame key={o.id} o={o} mode={mode} boardRoot={wb.boardRoot} onPointerDown={wb.objPointerDown} onHover={wb.setHover} />
+          <ObjectFrame key={o.id} o={o} mode={mode} boardRoot={wb.boardRoot} objects={objects} onPointerDown={wb.objPointerDown} onHover={wb.setHover} />
         ))}
       </div>
       <SelectionOverlay />
