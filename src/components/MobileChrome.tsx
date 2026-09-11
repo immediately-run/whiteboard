@@ -42,11 +42,12 @@ function MobileChrome() {
   return (
     <>
       <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', alignItems: 'center', gap: 8, zIndex: 41 }}>
-        <button title={mode === 'edit' ? 'Done' : 'Edit'} onClick={() => (mode === 'edit' ? wb.setRun() : wb.setEdit())} style={pill(mode === 'edit')}>
+        <button title={mode === 'edit' ? 'Done' : 'Edit'} aria-label={mode === 'edit' ? 'Done' : 'Edit'} onClick={() => (mode === 'edit' ? wb.setRun() : wb.setEdit())} style={pill(mode === 'edit')}>
           <Icon name={mode === 'edit' ? 'check' : 'pencil'} size={18} strokeWidth={1.75} />
         </button>
         <button
           title="Journeys"
+          aria-label="Journeys"
           onClick={() => {
             wb.togglePanel();
             wb.closeInspector();
@@ -55,11 +56,12 @@ function MobileChrome() {
         >
           <Icon name="route" size={18} strokeWidth={1.75} />
         </button>
-        <button title="Theme" onClick={() => wb.setLight(!light)} style={pill(false)}>
+        <button title="Theme" aria-label="Theme" onClick={() => wb.setLight(!light)} style={pill(false)}>
           <Icon name={light ? 'moon' : 'sun'} size={18} strokeWidth={1.75} />
         </button>
         <button
           title="Share"
+          aria-label="Share"
           onClick={() => wb.toast('Opening share dialog (share-space task)…', 'share')}
           style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 42, height: 42, background: 'var(--grad)', border: 'none', borderRadius: '50%', color: '#1a1020', cursor: 'pointer', boxShadow: 'var(--glow)', flex: 'none' }}
         >

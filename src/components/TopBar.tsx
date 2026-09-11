@@ -95,21 +95,22 @@ function TopBar() {
               overflow: 'hidden',
             }}
           >
-            <button title="Zoom out" onClick={() => wb.setZoom(z / 1.25)} style={{ display: 'flex', padding: '8px 10px', background: 'none', border: 'none', color: 'var(--ink-2)', cursor: 'pointer' }}>
+            <button title="Zoom out" aria-label="Zoom out" onClick={() => wb.setZoom(z / 1.25)} style={{ display: 'flex', padding: '8px 10px', background: 'none', border: 'none', color: 'var(--ink-2)', cursor: 'pointer' }}>
               <Icon name="minus" size={16} strokeWidth={2} />
             </button>
-            <button title="Reset zoom" onClick={() => wb.flyTo(views[0], 600)} style={{ padding: '8px 4px', minWidth: 52, background: 'none', border: 'none', color: 'var(--ink)', font: 'var(--mono-sm)', cursor: 'pointer' }}>
+            <button title="Reset zoom" aria-label="Reset zoom" onClick={() => wb.flyTo(views[0], 600)} style={{ padding: '8px 4px', minWidth: 52, background: 'none', border: 'none', color: 'var(--ink)', font: 'var(--mono-sm)', cursor: 'pointer' }}>
               {`${Math.round(z * 100)}%`}
             </button>
-            <button title="Zoom in" onClick={() => wb.setZoom(z * 1.25)} style={{ display: 'flex', padding: '8px 10px', background: 'none', border: 'none', color: 'var(--ink-2)', cursor: 'pointer' }}>
+            <button title="Zoom in" aria-label="Zoom in" onClick={() => wb.setZoom(z * 1.25)} style={{ display: 'flex', padding: '8px 10px', background: 'none', border: 'none', color: 'var(--ink-2)', cursor: 'pointer' }}>
               <Icon name="plus" size={16} strokeWidth={2} />
             </button>
           </div>
-          <button title="Journeys & views" onClick={wb.togglePanel} style={ctrlBtn(panelOpen)}>
+          <button title="Journeys & views" aria-label="Journeys & views" onClick={wb.togglePanel} style={ctrlBtn(panelOpen)}>
             <Icon name="route" size={18} />
           </button>
           <button
             title="Toggle theme"
+            aria-label="Toggle theme"
             onClick={wb.toggleTheme}
             style={{ display: 'flex', padding: 9, background: 'color-mix(in oklab, var(--panel) 86%, transparent)', border: '1px solid var(--line)', borderRadius: 'var(--r-pill)', color: 'var(--ink-2)', cursor: 'pointer', backdropFilter: 'blur(10px)' }}
           >

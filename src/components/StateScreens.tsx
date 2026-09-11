@@ -58,7 +58,7 @@ function StateScreens() {
       art: emptyArt('sticky', 40),
       title: 'An empty board.',
       body: 'Double-click anywhere to drop your first note — or pick an image. Every object you add becomes one file in this folder.',
-      actions: [primary('add-note', 'Add a note', 'plusBig'), secondary('insert-image', 'Insert image…', run(() => wb.insertImage(0, 0)))],
+      actions: [primary('add-note', 'Add a note', 'plusBig', run(() => wb.createObject('note', wb.state.cam.cx, wb.state.cam.cy))), secondary('insert-image', 'Insert image…', run(() => wb.insertImage(0, 0)))],
     },
     noboard: {
       art: emptyArt('inbox', 38),

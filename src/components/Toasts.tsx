@@ -9,7 +9,7 @@ function Toasts() {
   const wb = useWb();
   const { toasts } = wb.state;
   return (
-    <div style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', zIndex: 60, pointerEvents: 'none' }}>
+    <div role="status" aria-live="polite" style={{ position: 'absolute', bottom: 20, left: '50%', transform: 'translateX(-50%)', display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', zIndex: 60, pointerEvents: 'none' }}>
       {toasts.map((t) => {
         const iconColor = t.iconColor || 'var(--accent-pink)';
         return (
@@ -41,7 +41,7 @@ function Toasts() {
                   t.onAction?.();
                   wb.dismissToast(t.id);
                 }}
-                style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', font: 'var(--label)', cursor: 'pointer', padding: '2px 4px', whiteSpace: 'nowrap' }}
+                style={{ background: 'none', border: 'none', color: 'var(--accent-pink)', font: 'var(--label)', cursor: 'pointer', padding: '2px 4px', minHeight: 24, whiteSpace: 'nowrap' }}
               >
                 {t.actionLabel}
               </button>
