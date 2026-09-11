@@ -47,6 +47,7 @@ function EditToolbar() {
           <button
             key={`${t.label}-${i}`}
             title={t.label}
+            aria-label={t.label}
             onClick={() =>
               t.kind === 'img'
                 ? wb.insertImage(cam.cx, cam.cy)

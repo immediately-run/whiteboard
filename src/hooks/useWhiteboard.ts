@@ -39,6 +39,7 @@ import {
   loadBoard,
   openBoardTarget,
   restoreObject,
+  saveJourney as persistJourney,
   saveObject,
   saveView as persistView,
   seedBoard,
@@ -316,6 +317,31 @@ export function useWhiteboard() {
       (e) => toast(`Couldn't save view${codeOf(e)}`, 'alert', { iconColor: '#caa24a' }),
     );
   }, [update, toast]);
+
+  const addJourneyStep = useCallback(
+    (jid: string) => {
+      const s = stateRef.current;
+      const j = s.journeys.find((x) => x.id === jid);
+      if (!j) return;
+      const next: Journey = { ...j, steps: j.steps.concat([{ view: { cx: s.cam.cx, cy: s.cam.cy, zoom: s.cam.zoom } }]) };
+      update((st) => ({ journeys: st.journeys.map((x) => (x.id === jid ? next : x)) }));
+      const text = `Added step ${next.steps.length} to ${j.title} · saved to ${j.id}.mdx`;
+      const t = boardRef.current;
+      if (!t) {
+        toast(text, 'plus');
+        return;
+      }
+      if (t.mode === 'ro') {
+        toast('Read-only board · step not saved', 'lock', { iconColor: 'var(--ink-2)' });
+        return;
+      }
+      persistJourney(t, next).then(
+        () => toast(text, 'plus'),
+        (e) => toast(`Couldn't save journey${codeOf(e)}`, 'alert', { iconColor: '#caa24a' }),
+      );
+    },
+    [update, toast],
+  );
 
   const goStep = useCallback(
     (j: Journey, idx: number, instant?: boolean) => {
@@ -945,6 +971,8 @@ export function useWhiteboard() {
     };
 
     const onKeyDown = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const s = stateRef.current;
       if (s.journey) {
         if (e.key === 'ArrowRight' || e.key === ' ') {
@@ -1174,6 +1202,7 @@ export function useWhiteboard() {
     addSpace,
     // views & journeys
     saveView,
+    addJourneyStep,
     resolveView,
     playJourney,
     playNext,

@@ -76,7 +76,7 @@ function JourneysPanel() {
                     </span>
                   </div>
                 ))}
-                <button onClick={() => wb.toast('Added current view as step', 'plus')} style={{ ...miniBtn, justifyContent: 'center', padding: 6 }}>
+                <button onClick={() => wb.addJourneyStep(j.id)} style={{ ...miniBtn, justifyContent: 'center', padding: 6 }}>
                   <Icon name="plus" size={13} strokeWidth={2} />
                   Add current view
                 </button>

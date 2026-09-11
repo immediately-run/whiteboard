@@ -10,7 +10,7 @@ import { NOTE_COLORS } from '../data/seedBoard';
 import type { Background, WObject } from '../lib/types';
 
 const fl: React.CSSProperties = { font: 'var(--mono-xs)', letterSpacing: '.05em', textTransform: 'uppercase', color: 'var(--ink-3)' };
-const inp: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 8, color: 'var(--ink)', font: 'var(--body-sm)', outline: 'none' };
+const inp: React.CSSProperties = { width: '100%', padding: '8px 10px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 8, color: 'var(--ink)', font: 'var(--body-sm)' };
 const seg = (on: boolean): React.CSSProperties => ({
   flex: 1,
   display: 'flex',
