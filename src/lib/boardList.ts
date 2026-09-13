@@ -6,6 +6,7 @@
 
 import fs from 'fs';
 import type { SandboxMount } from '@immediately-run/sdk/mounts';
+import { folderIsBoard, join } from './boardStore';
 import type { BoardTarget } from './boardStore';
 
 /** One board folder inside a space. */
@@ -23,12 +24,6 @@ export interface SpaceBoards {
   boards: BoardEntry[];
 }
 
-const BOARD_MANIFEST = 'board.md';
-
-function join(...parts: string[]): string {
-  return parts.join('/').replace(/\/+/g, '/');
-}
-
 /** The mounts that can hold boards: the spaces the host granted us (their
  *  paths name them — `/spaces/{id}`), excluding the primary repo mount. A
  *  read-only space is still listable; creation inside it is what it refuses. */
@@ -36,9 +31,10 @@ export function boardMounts(mounts: SandboxMount[]): SandboxMount[] {
   return mounts.filter((m) => m.path.startsWith('/spaces/'));
 }
 
-/** List the boards under one mount: the root's entries that carry a board.md
- *  (the same marker `folderIsBoard` uses). Degrades to an empty list when the
- *  mount is unreadable — an unreachable space renders no rows, never a crash. */
+/** List the boards under one mount: the root's entries that are board folders
+ *  — the marker check is boardStore's `folderIsBoard` (one home for the
+ *  is-a-board rule, R6). Degrades to an empty list when the mount is
+ *  unreadable — an unreachable space renders no rows, never a crash. */
 export async function boardsInMount(mount: SandboxMount): Promise<BoardEntry[]> {
   let entries: string[] = [];
   try {
@@ -48,16 +44,8 @@ export async function boardsInMount(mount: SandboxMount): Promise<BoardEntry[]> 
   }
   const boards: BoardEntry[] = [];
   for (const entry of entries) {
-    // The manifest lives one level down; the marker IS the check.
-    try {
-      await fs.promises.access(join(mount.path, entry, BOARD_MANIFEST));
-      boards.push({
-        name: entry,
-        target: { root: join(mount.path, entry), mode: mount.mode === 'ro' ? 'ro' : 'rw', spaceId: mount.id },
-      });
-    } catch {
-      // Not a board folder (no manifest) — not listed.
-    }
+    const target: BoardTarget = { root: join(mount.path, entry), mode: mount.mode === 'ro' ? 'ro' : 'rw', spaceId: mount.id };
+    if (await folderIsBoard(target)) boards.push({ name: entry, target });
   }
   return boards;
 }

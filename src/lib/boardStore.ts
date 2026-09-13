@@ -60,6 +60,11 @@ function join(...parts: string[]): string {
   return parts.join('/').replace(/\/+/g, '/');
 }
 
+// Exported for boardList (R6: the path-join and the is-a-board rule have ONE
+// home — here — and the chooser's enumeration imports them rather than
+// re-spelling either).
+export { join };
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fs.promises.access(path);

@@ -341,25 +341,31 @@ export function useWhiteboard() {
     );
   }, [update, toast]);
 
-  /** Remove a view on the surface that creates them (R3-607, R-IX-5): the
-   *  in-memory list drops optimistically (same shape as deleteSelection) and
-   *  the file goes when the board is writable. */
+  /** Remove a view on the surface that creates them (R3-607, R-IX-5). A
+   *  read-only board refuses BEFORE anything drops (the row never vanishes
+   *  into a refusal); on writable boards the drop is optimistic and a failed
+   *  file removal rolls the view back in. */
   const deleteView = useCallback(
     (name: string) => {
-      update((s) => ({ views: s.views.filter((v) => v.name !== name) }));
-      const text = `Removed views/${name}.md`;
       const t = boardRef.current;
-      if (!t) {
-        toast(text, 'trash');
-        return;
-      }
-      if (t.mode === 'ro') {
+      const view = stateRef.current.views.find((v) => v.name === name);
+      if (!view) return;
+      if (t && t.mode === 'ro') {
         toast('Read-only board · view not removed', 'lock', { iconColor: 'var(--ink-2)' });
         return;
       }
+      update((s) => ({ views: s.views.filter((v) => v.name !== name) }));
+      if (!t) {
+        toast(`Removed views/${name}.md`, 'trash');
+        return;
+      }
       removeView(t, name).then(
-        () => toast(text, 'trash'),
-        (e) => toast(`Couldn't remove view${codeOf(e)}`, 'alert', { iconColor: '#caa24a' }),
+        () => toast(`Removed views/${name}.md`, 'trash'),
+        (e) => {
+          // Roll the optimistic drop back — the file survived, so must the row.
+          update((s) => (s.views.some((v) => v.name === name) ? {} : { views: s.views.concat([view]) }));
+          toast(`Couldn't remove view${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+        },
       );
     },
     [update, toast],
@@ -671,6 +677,11 @@ export function useWhiteboard() {
         title: board.title ?? stateRef.current.title,
         mode: readonly ? 'run' : stateRef.current.mode,
         selection: [],
+        // A keyboard connect armed against the previous board must not survive
+        // the swap (R3-607 review): its source id is stale the moment objects
+        // are replaced.
+        connectFrom: null,
+        connectCursor: null,
         inspectorOpen: false,
         screen: null,
       });
@@ -930,7 +941,10 @@ export function useWhiteboard() {
 
   // ---- mode / view controls ----
   const setRun = useCallback(
-    () => update({ mode: 'run', selection: [], inspectorOpen: false, quickMenu: null, connectPreview: null }),
+    // Leaving edit disarms a keyboard connect too (its cursor lives on the
+    // edit surface) — connectFrom surviving into run mode would own the
+    // arrows of a mode that has no selection (R3-607 review).
+    () => update({ mode: 'run', selection: [], inspectorOpen: false, quickMenu: null, connectPreview: null, connectFrom: null, connectCursor: null }),
     [update],
   );
   const setEdit = useCallback(() => update({ mode: 'edit' }), [update]);

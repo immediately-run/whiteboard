@@ -48,6 +48,7 @@ function ObjectFrame({ o, mode, boardRoot, objects, tabStop, onFocusObject, onPo
       /* The roving stop: 0 on the one tabbable object, -1 on the rest, absent
        * outside edit mode (run mode has no keyboard selection). */
       tabIndex={editable ? (tabStop ? 0 : -1) : undefined}
+      data-obj-id={o.id}
       role="group"
       aria-label={o.title || o.kind}
       onFocus={() => {

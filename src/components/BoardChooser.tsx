@@ -52,11 +52,18 @@ function BoardChooser() {
 
   // The real list: enumerate the granted spaces and the boards under each.
   // Re-derived when the mounts change (a granted space appears mid-session).
+  // Every failure path is caught INSIDE boardsInMount (an unreadable space
+  // degrades to no rows), so this sink is the unreachable last resort — named
+  // rather than silently dropped.
   useEffect(() => {
     let cancelled = false;
-    listSpacesAndBoards(wb.state.mounts).then((list) => {
-      if (!cancelled) setSpaces(list);
-    });
+    listSpacesAndBoards(wb.state.mounts)
+      .then((list) => {
+        if (!cancelled) setSpaces(list);
+      })
+      .catch(() => {
+        /* boardsInMount owns the failure modes; nothing sensible to render here */
+      });
     return () => {
       cancelled = true;
     };
@@ -106,7 +113,9 @@ function BoardChooser() {
                   aria-busy={busy === 'open-board'}
                   disabled={busy !== null}
                   onClick={() => {
-                    close();
+                    // No close() first: the busy state this row enters must be
+                    // VISIBLE (R-IX-2); loadBoardInto closes the chooser on
+                    // success, and a failure leaves it open to retry.
                     void wb.openBoardAt(b.target);
                   }}
                   style={{
@@ -141,7 +150,6 @@ function BoardChooser() {
                   aria-busy={busy === 'new-board'}
                   disabled={busy !== null}
                   onClick={() => {
-                    close();
                     void wb.newBoardIn({ root: sp.mount.path, mode: 'rw', spaceId: sp.mount.id });
                   }}
                   style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', background: 'none', border: '1px dashed var(--line-2)', borderRadius: 11, color: 'var(--ink-3)', font: 'var(--body-sm)', cursor: 'pointer', textAlign: 'left' }}
@@ -156,11 +164,11 @@ function BoardChooser() {
 
         <div style={{ padding: '12px 14px', borderTop: '1px solid var(--line)', display: 'flex', flexDirection: 'column', gap: 9, flex: 'none' }}>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => { close(); wb.addSpace(); }} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, background: 'var(--grad)', border: 'none', borderRadius: 'var(--r-pill)', color: '#1a1020', font: 'var(--label)', cursor: 'pointer' }}>
+            <button onClick={() => { wb.addSpace(); }} style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, padding: 12, background: 'var(--grad)', border: 'none', borderRadius: 'var(--r-pill)', color: '#1a1020', font: 'var(--label)', cursor: 'pointer' }}>
               <Icon name="userPlus" size={16} color="#1a1020" strokeWidth={1.75} />
               Add a space…
             </button>
-            <button aria-busy={busy === 'open-board'} disabled={busy !== null} onClick={() => { close(); wb.openBoard(); }} style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '12px 16px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', color: 'var(--ink)', font: 'var(--label)', cursor: 'pointer' }}>
+            <button aria-busy={busy === 'open-board'} disabled={busy !== null} onClick={() => { wb.openBoard(); }} style={{ flex: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '12px 16px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', color: 'var(--ink)', font: 'var(--label)', cursor: 'pointer' }}>
               <Icon name="folder" size={16} strokeWidth={1.75} />
               Open folder…
             </button>

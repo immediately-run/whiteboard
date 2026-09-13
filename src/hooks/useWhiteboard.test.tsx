@@ -55,6 +55,18 @@ describe('post-pick busy states (R3-607)', () => {
     pickResult = null;
   });
 
+  it('applySelection — the additive branch every shift-click takes (toggle in, toggle out)', async () => {
+    await renderWithBoard();
+    // The pure spelling both pointer and keyboard share; imported directly so a
+    // toggle-branch regression cannot hide behind a render.
+    const { applySelection } = await import('./useWhiteboard');
+    expect(applySelection([], 'a', true)).toEqual(['a']);
+    expect(applySelection(['a'], 'b', true)).toEqual(['a', 'b']);
+    expect(applySelection(['a', 'b'], 'a', true)).toEqual(['b']); // toggle out
+    expect(applySelection(['a'], 'a', false)).toEqual(['a']); // replace keeps
+    expect(applySelection(['a'], 'b', false)).toEqual(['b']); // replace swaps
+  });
+
   it('the busy label is set before the pick resolves and cleared after (cancel)', async () => {
     await renderWithBoard();
     const wb = held.wb!;
