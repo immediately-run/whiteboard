@@ -6,6 +6,7 @@
 
 import { useWb } from '../hooks/useWhiteboardCtx';
 import { useOverlayDialog } from '../hooks/useOverlayDialog';
+import { BUSY_LABELS } from '../hooks/useWhiteboard';
 import Icon from './Icon';
 import type { ObjectKind } from '../lib/types';
 
@@ -61,7 +62,7 @@ function QuickCreateMenu() {
             <span style={{ display: 'inline-flex', color: 'var(--ink-2)' }}>
               <Icon name={it.icon} size={16} />
             </span>
-            {busy ? 'Adding image…' : it.label}
+            {busy ? BUSY_LABELS['insert-image'] : it.label}
           </button>
         );
       })}

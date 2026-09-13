@@ -25,7 +25,15 @@ vi.mock('../lib/pickFile', () => ({
   safeRel: (s: string) => s,
 }));
 
+// removeView is the one boardStore function deleteView's new branches ride —
+// controllable here, real everywhere else (partial mock over the original).
+vi.mock('../lib/boardStore', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../lib/boardStore')>()),
+  removeView: vi.fn(async () => undefined),
+}));
+
 import { useWhiteboard } from './useWhiteboard';
+import { removeView } from '../lib/boardStore';
 
 // Held in an object (not a bare let): the react-hooks globals rule forbids
 // reassigning outside-declared variables inside a component.
@@ -102,5 +110,34 @@ describe('post-pick busy states (R3-607)', () => {
     });
     expect(held.wb!.state.busy).toBeNull();
     expect(held.wb!.state.toasts.some((t) => t.text.includes('insert image'))).toBe(true);
+  });
+
+  it('deleteView on a read-only board refuses BEFORE dropping — the row survives', async () => {
+    render(<Harness />);
+    await act(async () => {
+      // A read-only board target (the ro guard fires before any state change).
+      await held.wb!.openBoardAt({ root: '/mem/ro', mode: 'ro' });
+    });
+    const name = held.wb!.state.views[0].name;
+    await act(async () => {
+      held.wb!.deleteView(name);
+    });
+    expect(held.wb!.state.views.some((v) => v.name === name)).toBe(true);
+    expect(held.wb!.state.toasts.some((t) => t.text.includes('Read-only board'))).toBe(true);
+    expect(removeView).not.toHaveBeenCalled();
+  });
+
+  it('deleteView rolls the row back when the file removal fails', async () => {
+    render(<Harness />);
+    await act(async () => {
+      await held.wb!.openBoardAt({ root: '/mem/board', mode: 'rw' });
+    });
+    const name = held.wb!.state.views[0].name;
+    vi.mocked(removeView).mockRejectedValueOnce(Object.assign(new Error('EROFS'), { code: 'EROFS' }));
+    await act(async () => {
+      held.wb!.deleteView(name);
+    });
+    expect(held.wb!.state.views.some((v) => v.name === name)).toBe(true);
+    expect(held.wb!.state.toasts.some((t) => t.text.includes('remove view'))).toBe(true);
   });
 });

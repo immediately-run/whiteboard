@@ -102,6 +102,22 @@ describe('Canvas keyboard selection (R3-607)', () => {
     expect(held.wb!.state.objects.find((o) => o.id === id)).toBeUndefined();
   });
 
+  it('Tab from the roving stop is RELEASED — the funnel is not a trap (WCAG 2.1.2)', async () => {
+    await renderEdit();
+    const stop = (await focusRovingStop()) as HTMLElement;
+    expect(document.activeElement).toBe(stop);
+    // Tab ON the stop: not intercepted — focus is free to leave the canvas.
+    const tabOut = fireEvent.keyDown(stop, { key: 'Tab', bubbles: true });
+    expect(tabOut).toBe(true);
+    const evt = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true });
+    stop.dispatchEvent(evt);
+    expect(evt.defaultPrevented).toBe(false);
+    // Shift+Tab is never intercepted either.
+    const back = new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true, cancelable: true });
+    stop.dispatchEvent(back);
+    expect(back.defaultPrevented).toBe(false);
+  });
+
   it('typing in an input never reaches the nudge — the #18 scoping pin', async () => {
     const { container } = render(
       <div>

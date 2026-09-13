@@ -149,6 +149,15 @@ const prefersReducedMotion = (): boolean => {
   }
 };
 
+/** The ONE spelling of what each named busy state says on its control
+ *  (R-IX-2 / R6): every surface that names a wait reads this map — coupled
+ *  surfaces cannot drift apart on a reword. */
+export const BUSY_LABELS = {
+  'insert-image': 'Adding image…',
+  'new-board': 'Creating board…',
+  'open-board': 'Opening board…',
+} as const;
+
 export function useWhiteboard() {
   // The canvas element arrives via a callback ref (a function, not a ref object
   // read during render) so the listener effect re-runs once it mounts.

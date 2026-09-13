@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { useWb } from '../hooks/useWhiteboardCtx';
 import { useOverlayDialog } from '../hooks/useOverlayDialog';
 import { listSpacesAndBoards } from '../lib/boardList';
+import { BUSY_LABELS } from '../hooks/useWhiteboard';
 import type { SpaceBoards } from '../lib/boardList';
 import Icon from './Icon';
 
@@ -70,7 +71,7 @@ function BoardChooser() {
   }, [wb.state.mounts]);
 
   const busy = wb.state.busy;
-  const busyLabel = busy === 'open-board' ? 'Opening board…' : busy === 'new-board' ? 'Creating board…' : null;
+  const busyLabel = busy ? BUSY_LABELS[busy] : null;
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 70, background: 'color-mix(in oklab, var(--bg) 92%, transparent)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>

@@ -5,6 +5,7 @@
 // so); this only frames the app-side states around it.
 
 import { useWb } from '../hooks/useWhiteboardCtx';
+import { BUSY_LABELS } from '../hooks/useWhiteboard';
 import { useOverlayDialog } from '../hooks/useOverlayDialog';
 import BoardChooser from './BoardChooser';
 import Icon from './Icon';
@@ -50,9 +51,9 @@ function StateScreens() {
     label: string,
     icon: string,
     onClick: () => void = close,
-    busyLabel?: string,
+    busyFlow?: keyof typeof BUSY_LABELS,
   ) => {
-    const busy = busyLabel !== undefined && wb.state.busy !== null;
+    const busy = busyFlow !== undefined && wb.state.busy !== null;
     return (
       <button
         key={key}
@@ -62,15 +63,15 @@ function StateScreens() {
         style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 20px', background: 'var(--grad)', border: 'none', borderRadius: 'var(--r-pill)', color: '#1a1020', font: 'var(--label)', cursor: busy ? 'default' : 'pointer', boxShadow: 'var(--glow)', whiteSpace: 'nowrap' }}
       >
         <Icon name={icon} size={16} color="#1a1020" strokeWidth={icon === 'chevRight' || icon === 'plusBig' ? 2 : 1.75} />
-        {busy ? busyLabel : label}
+        {busy ? BUSY_LABELS[busyFlow!] : label}
       </button>
     );
   };
-  const secondary = (key: string, label: string, onClick: () => void = close, busyLabel?: string) => {
-    const busy = busyLabel !== undefined && wb.state.busy !== null;
+  const secondary = (key: string, label: string, onClick: () => void = close, busyFlow?: keyof typeof BUSY_LABELS) => {
+    const busy = busyFlow !== undefined && wb.state.busy !== null;
     return (
       <button key={key} aria-busy={busy || undefined} disabled={busy} onClick={onClick} style={{ padding: '12px 20px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', color: 'var(--ink)', font: 'var(--label)', cursor: busy ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
-        {busy ? busyLabel : label}
+        {busy ? BUSY_LABELS[busyFlow!] : label}
       </button>
     );
   };
@@ -92,14 +93,14 @@ function StateScreens() {
       body: 'Double-click anywhere to drop your first note — or pick an image. Every object you add becomes one file in this folder.',
       actions: [
         primary('add-note', 'Add a note', 'plusBig', instant(() => wb.createObject('note', wb.state.cam.cx, wb.state.cam.cy))),
-        secondary('insert-image', 'Insert image…', flow(() => wb.insertImage(0, 0)), 'Adding image…'),
+        secondary('insert-image', 'Insert image…', flow(() => wb.insertImage(0, 0)), 'insert-image'),
       ],
     },
     noboard: {
       art: emptyArt('inbox', 38),
       title: 'No board selected.',
       body: 'Choose a board to open, or start a new one. Your boards live across your team spaces.',
-      actions: [primary('open-board', 'Open a board…', 'folder', flow(wb.openBoard), 'Opening board…')],
+      actions: [primary('open-board', 'Open a board…', 'folder', flow(wb.openBoard), 'open-board')],
     },
     signedout: {
       art: emptyArt('lock', 34),
@@ -112,8 +113,8 @@ function StateScreens() {
       title: 'Not a board.',
       body: 'That folder has no board.md, so there is nothing to render. Pick a different folder, or create a board here.',
       actions: [
-        primary('create-board', 'Create board here…', 'plusBig', flow(wb.newBoard), 'Creating board…'),
-        secondary('pick-another', 'Pick another…', flow(wb.openBoard)),
+        primary('create-board', 'Create board here…', 'plusBig', flow(wb.newBoard), 'new-board'),
+        secondary('pick-another', 'Pick another…', flow(wb.openBoard), 'open-board'),
       ],
     },
   };

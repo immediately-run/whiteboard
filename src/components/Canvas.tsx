@@ -78,13 +78,14 @@ function Canvas() {
   // one — exactly one object on the canvas is ever tabbable.
   const tabStopId = mode === 'edit' ? (selection[0] ?? visible.find((o) => !o.hidden)?.id ?? null) : null;
 
-  // The surface funnels Tab INTO the roving stop (R3-607): a Tab pressed inside
-  // the canvas chrome (not an input — those keep their own order) lands the
-  // keyboard on the one object stop instead of wandering the chrome.
+  // The surface funnels Tab INTO the roving stop (R3-607) — a funnel, never a
+  // trap (WCAG 2.1.2): once focus is ON the stop, Tab is released to leave the
+  // canvas naturally, and Shift+Tab is never intercepted at all.
   const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key !== 'Tab' || mode !== 'edit' || !tabStopId) return;
+    if (e.key !== 'Tab' || e.shiftKey || mode !== 'edit' || !tabStopId) return;
     const t = e.target as HTMLElement | null;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (t && t.getAttribute?.('data-obj-id') === tabStopId) return; // already on the stop — let Tab out
     const stop = e.currentTarget.querySelector(`[data-obj-id="${tabStopId}"][tabindex="0"]`) as HTMLElement | null;
     if (stop) {
       e.preventDefault();
