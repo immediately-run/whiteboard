@@ -60,6 +60,11 @@ function join(...parts: string[]): string {
   return parts.join('/').replace(/\/+/g, '/');
 }
 
+// Exported for boardList (R6: the path-join and the is-a-board rule have ONE
+// home — here — and the chooser's enumeration imports them rather than
+// re-spelling either).
+export { join };
+
 async function exists(path: string): Promise<boolean> {
   try {
     await fs.promises.access(path);
@@ -182,6 +187,13 @@ export async function restoreObject(t: BoardTarget, id: string): Promise<void> {
 export async function saveView(t: BoardTarget, v: View): Promise<void> {
   await fs.promises.mkdir(join(t.root, VIEWS), { recursive: true });
   await fs.promises.writeFile(join(t.root, VIEWS, `${v.name}.md`), serializeView(v), 'utf8');
+}
+
+/** Remove a view's file (R3-607: a thing creatable on the surface has a destroy
+ *  on it). `force` so removing an already-absent file is a no-op, never a
+ *  failure the caller has to field. */
+export async function removeView(t: BoardTarget, name: string): Promise<void> {
+  await fs.promises.rm(join(t.root, VIEWS, `${name}.md`), { force: true });
 }
 
 export async function saveJourney(t: BoardTarget, j: Journey): Promise<void> {

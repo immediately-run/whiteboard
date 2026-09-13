@@ -38,6 +38,7 @@ import {
   folderIsBoard,
   loadBoard,
   openBoardTarget,
+  removeView,
   restoreObject,
   saveJourney as persistJourney,
   saveObject,
@@ -52,6 +53,7 @@ import { boardSpaceRoot, pickFile, requestSpace, safeRel } from '../lib/pickFile
 // whose top-level `addListener` side effect throws `no host transport` at
 // module-eval time under local `vite dev`. `/mounts` is side-effect-free.
 import { getMounts, onMountsChange } from '@immediately-run/sdk/mounts';
+import type { SandboxMount } from '@immediately-run/sdk/mounts';
 import {
   abortOpenProject,
   dirCapToBoardTarget,
@@ -83,6 +85,10 @@ interface WBState {
   hover: string | null;
   marquee: { x: number; y: number; w: number; h: number } | null;
   connectPreview: { from: string; x: number; y: number; target: string | null } | null;
+  /** Keyboard connect mode (R3-607): the source object, and the cursor object
+   *  arrows walk as the connect target. Null when not connecting. */
+  connectFrom: string | null;
+  connectCursor: string | null;
   inspectorOpen: boolean;
   panelOpen: boolean;
   quickMenu: { lx: number; ly: number; wx: number; wy: number } | null;
@@ -92,6 +98,11 @@ interface WBState {
   demoMenuOpen: boolean;
   panning: boolean;
   reduced: boolean;
+  /** The named busy state of the one long-running pick flow (R-IX-2): the
+   *  confirming control shows this label and aria-busy until it settles. */
+  busy: null | 'insert-image' | 'new-board' | 'open-board';
+  /** Live mounts, mirrored from the host (the board chooser lists these). */
+  mounts: SandboxMount[];
 }
 
 type Drag =
@@ -109,6 +120,14 @@ const initialViewport = (): Viewport => ({
   vleft: 0,
   vtop: 0,
 });
+
+/** The ONE spelling of selection semantics (R3-607, R6): given the current
+ *  selection and an id, the next selection for a replace- or toggle-click /
+ *  focus. Pure, so the pointer path and the keyboard path cannot drift. */
+export function applySelection(sel: string[], id: string, additive: boolean): string[] {
+  if (additive) return sel.includes(id) ? sel.filter((x) => x !== id) : sel.concat(id);
+  return sel.includes(id) ? sel : [id];
+}
 
 const MOBILE_BREAKPOINT = 720;
 
@@ -129,6 +148,15 @@ const prefersReducedMotion = (): boolean => {
     return false;
   }
 };
+
+/** The ONE spelling of what each named busy state says on its control
+ *  (R-IX-2 / R6): every surface that names a wait reads this map — coupled
+ *  surfaces cannot drift apart on a reword. */
+export const BUSY_LABELS = {
+  'insert-image': 'Adding image…',
+  'new-board': 'Creating board…',
+  'open-board': 'Opening board…',
+} as const;
 
 export function useWhiteboard() {
   // The canvas element arrives via a callback ref (a function, not a ref object
@@ -159,6 +187,8 @@ export function useWhiteboard() {
     hover: null,
     marquee: null,
     connectPreview: null,
+    connectFrom: null,
+    connectCursor: null,
     inspectorOpen: false,
     panelOpen: false,
     quickMenu: null,
@@ -168,6 +198,8 @@ export function useWhiteboard() {
     demoMenuOpen: false,
     panning: false,
     reduced: prefersReducedMotion(),
+    busy: null,
+    mounts: [],
   }));
 
   // Mirror committed state so the document-level handlers branch on fresh values.
@@ -318,6 +350,36 @@ export function useWhiteboard() {
     );
   }, [update, toast]);
 
+  /** Remove a view on the surface that creates them (R3-607, R-IX-5). A
+   *  read-only board refuses BEFORE anything drops (the row never vanishes
+   *  into a refusal); on writable boards the drop is optimistic and a failed
+   *  file removal rolls the view back in. */
+  const deleteView = useCallback(
+    (name: string) => {
+      const t = boardRef.current;
+      const view = stateRef.current.views.find((v) => v.name === name);
+      if (!view) return;
+      if (t && t.mode === 'ro') {
+        toast('Read-only board · view not removed', 'lock', { iconColor: 'var(--ink-2)' });
+        return;
+      }
+      update((s) => ({ views: s.views.filter((v) => v.name !== name) }));
+      if (!t) {
+        toast(`Removed views/${name}.md`, 'trash');
+        return;
+      }
+      removeView(t, name).then(
+        () => toast(`Removed views/${name}.md`, 'trash'),
+        (e) => {
+          // Roll the optimistic drop back — the file survived, so must the row.
+          update((s) => (s.views.some((v) => v.name === name) ? {} : { views: s.views.concat([view]) }));
+          toast(`Couldn't remove view${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+        },
+      );
+    },
+    [update, toast],
+  );
+
   const addJourneyStep = useCallback(
     (jid: string) => {
       const s = stateRef.current;
@@ -445,6 +507,21 @@ export function useWhiteboard() {
     [update, scheduleSave],
   );
 
+  // ---- selection: one action for pointer and keyboard (R3-607) ----
+  const select = useCallback(
+    (id: string, additive = false) => {
+      update((s) => ({
+        selection: applySelection(s.selection, id, additive),
+        inspectorOpen: true,
+        quickMenu: null,
+      }));
+    },
+    [update],
+  );
+
+  /** Close the quick-create menu (its Escape/blur path, R3-607). */
+  const closeQuickMenu = useCallback(() => update({ quickMenu: null }), [update]);
+
   const deleteSelection = useCallback(() => {
     const sel = stateRef.current.selection.slice();
     if (!sel.length) return;
@@ -529,7 +606,8 @@ export function useWhiteboard() {
   // onto our OWN mount — re-validating it first (defense in depth, §1.3).
 
   /** Insert an image: pick a file, copy it into the board's `assets/`, drop an
-   *  `<Img>` object at the world point. Self-contained per §4.2. */
+   *  <Img> object at the world point. Self-contained per §4.2. The pick is
+   *  named-busy on the confirming control until it settles (R-IX-2). */
   const insertImage = useCallback(
     async (wx: number, wy: number) => {
       const target = boardRef.current;
@@ -537,6 +615,7 @@ export function useWhiteboard() {
         toast('Sign in to insert images into your board.', 'save', { iconColor: 'var(--ink-2)' });
         return;
       }
+      update({ busy: 'insert-image' });
       try {
         const res = await pickFile({
           mode: 'open-file',
@@ -582,6 +661,8 @@ export function useWhiteboard() {
         commitSave([o], `Inserted assets/${name}`, 'image');
       } catch (e) {
         toast(`Couldn’t insert image${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      } finally {
+        update({ busy: null });
       }
     },
     [toast, update, commitSave],
@@ -605,6 +686,11 @@ export function useWhiteboard() {
         title: board.title ?? stateRef.current.title,
         mode: readonly ? 'run' : stateRef.current.mode,
         selection: [],
+        // A keyboard connect armed against the previous board must not survive
+        // the swap (R3-607 review): its source id is stale the moment objects
+        // are replaced.
+        connectFrom: null,
+        connectCursor: null,
         inspectorOpen: false,
         screen: null,
       });
@@ -613,9 +699,10 @@ export function useWhiteboard() {
   );
 
   /** Open an existing board folder in `space`: pick a folder, require a board.md,
-   *  then load it as the active board. */
+   *  then load it as the active board. Named-busy while the pick is out. */
   const openBoardIn = useCallback(
     async (space: BoardTarget) => {
+      update({ busy: 'open-board' });
       try {
         const res = await pickFile({
           mode: 'open-folder',
@@ -641,18 +728,40 @@ export function useWhiteboard() {
         toast('Board opened.', 'check');
       } catch (e) {
         toast(`Couldn’t open board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      } finally {
+        update({ busy: null });
       }
     },
-    [toast, loadBoardInto],
+    [toast, update, loadBoardInto],
   );
 
-  /** New board: pick (or create) a folder in `space`, scaffold board.md, open it. */
+  /** Open a SPECIFIC board directory directly (the chooser's rows, R3-607):
+   *  no picker — the caller already knows the folder (it listed it). Loads
+   *  through the same `loadBoardInto` every open path funnels into. */
+  const openBoardAt = useCallback(
+    async (target: BoardTarget) => {
+      update({ busy: 'open-board' });
+      try {
+        await loadBoardInto(target);
+        toast('Board opened.', 'check');
+      } catch (e) {
+        toast(`Couldn’t open board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      } finally {
+        update({ busy: null });
+      }
+    },
+    [toast, update, loadBoardInto],
+  );
+
+  /** New board: pick (or create) a folder in `space`, scaffold board.md, open it.
+   *  Named-busy while the pick is out. */
   const newBoardIn = useCallback(
     async (space: BoardTarget) => {
       if (space.mode === 'ro') {
         toast('That space is read-only — you can’t create a board there.', 'lock', { iconColor: 'var(--ink-2)' });
         return;
       }
+      update({ busy: 'new-board' });
       try {
         const res = await pickFile({
           mode: 'open-folder',
@@ -675,9 +784,11 @@ export function useWhiteboard() {
         toast('Board created.', 'check');
       } catch (e) {
         toast(`Couldn’t create board${codeOf(e)}`, 'alert', { iconColor: '#caa24a' });
+      } finally {
+        update({ busy: null });
       }
     },
-    [toast, loadBoardInto],
+    [toast, update, loadBoardInto],
   );
 
   /** Open / new board against the CURRENT board space (the chooser's footer). */
@@ -731,6 +842,42 @@ export function useWhiteboard() {
     [update, commitSave],
   );
 
+  // ---- keyboard connect (the non-drag path to an edge, R3-607 / 2.5.7) ----
+  /** Enter connect-from on the selected object; the cursor starts on the first
+   *  other object in stacking order. Arrows then walk the cursor (the overlay
+   *  draws it), Enter commits through the same addConnection the drag calls,
+   *  Escape cancels. */
+  const beginConnect = useCallback(() => {
+    const s = stateRef.current;
+    if (s.selection.length !== 1) return;
+    const from = s.selection[0];
+    const order = s.objects.slice().sort((a, b) => (a.z || 0) - (b.z || 0)).map((o) => o.id).filter((id) => id !== from);
+    update({ connectFrom: from, connectCursor: order[0] ?? null, inspectorOpen: false });
+  }, [update]);
+
+  const endConnect = useCallback(
+    (commit: boolean) => {
+      const s = stateRef.current;
+      if (!s.connectFrom) return;
+      if (commit && s.connectCursor) addConnection(s.connectFrom, s.connectCursor);
+      update({ connectFrom: null, connectCursor: null });
+    },
+    [update, addConnection],
+  );
+
+  const moveConnectCursor = useCallback(
+    (dir: -1 | 1) => {
+      update((s) => {
+        if (!s.connectFrom) return {};
+        const order = s.objects.slice().sort((a, b) => (a.z || 0) - (b.z || 0)).map((o) => o.id).filter((id) => id !== s.connectFrom);
+        if (!order.length) return {};
+        const idx = order.indexOf(s.connectCursor ?? order[0]);
+        return { connectCursor: order[(idx + dir + order.length) % order.length] };
+      });
+    },
+    [update],
+  );
+
   // ---- pointer gestures ----
   const onCanvasDown = useCallback(
     (e: React.PointerEvent) => {
@@ -762,9 +909,8 @@ export function useWhiteboard() {
       }
       const o = s.objects.find((x) => x.id === id);
       if (!o) return;
-      let sel = s.selection.slice();
-      if (e.shiftKey) sel = sel.includes(id) ? sel.filter((x) => x !== id) : sel.concat(id);
-      else if (!sel.includes(id)) sel = [id];
+      // One spelling of selection for pointer and keyboard alike (R3-607).
+      const sel = applySelection(s.selection, id, e.shiftKey);
       update({ selection: sel, inspectorOpen: true, quickMenu: null });
       if (o.locked) return;
       const orig: Record<string, { x: number; y: number }> = {};
@@ -804,7 +950,10 @@ export function useWhiteboard() {
 
   // ---- mode / view controls ----
   const setRun = useCallback(
-    () => update({ mode: 'run', selection: [], inspectorOpen: false, quickMenu: null, connectPreview: null }),
+    // Leaving edit disarms a keyboard connect too (its cursor lives on the
+    // edit surface) — connectFrom surviving into run mode would own the
+    // arrows of a mode that has no selection (R3-607 review).
+    () => update({ mode: 'run', selection: [], inspectorOpen: false, quickMenu: null, connectPreview: null, connectFrom: null, connectCursor: null }),
     [update],
   );
   const setEdit = useCallback(() => update({ mode: 'edit' }), [update]);
@@ -985,6 +1134,25 @@ export function useWhiteboard() {
         }
         return;
       }
+      // Keyboard connect owns the arrows while it is armed (R3-607): arrows
+      // walk the target cursor, Enter commits, Escape cancels — never nudging
+      // or deleting underneath a live connect.
+      if (s.connectFrom) {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          moveConnectCursor(-1);
+        } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          moveConnectCursor(1);
+        } else if (e.key === 'Enter') {
+          e.preventDefault();
+          endConnect(true);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          endConnect(false);
+        }
+        return;
+      }
       if (e.key === 'Escape') update({ selection: [], quickMenu: null, screen: null });
       if (e.key === ' ') spaceRef.current = true;
       if (s.mode === 'edit' && s.selection.length) {
@@ -1130,12 +1298,20 @@ export function useWhiteboard() {
         }
       }
       if (cancelled) return;
+      // Mirror the live mounts into state (the board chooser lists these,
+      // R3-607) alongside the downgrade watch below.
+      try {
+        update({ mounts: getMounts() });
+      } catch {
+        // No host runtime yet — the list stays empty and the chooser degrades.
+      }
       // A live role-downgrade re-announces the mount as `ro`; removal tears it down.
       // The mount service needs the host runtime, which is absent under local
       // `vite dev` — there the board is a static on-disk dir with no role changes,
       // so skip the subscription rather than crash.
       try {
         unsub = onMountsChange((mounts, removed) => {
+          update({ mounts });
           const cur = boardRef.current;
           if (!cur) return;
           const m = mounts.find((x) => (cur.spaceId ? x.id === cur.spaceId : x.path === cur.root));
@@ -1190,6 +1366,12 @@ export function useWhiteboard() {
     startConnect,
     setHover,
     clearSelection,
+    select,
+    closeQuickMenu,
+    // keyboard connect (the non-drag path)
+    beginConnect,
+    endConnect,
+    moveConnectCursor,
     // mutations
     patchSel,
     patchObject,
@@ -1198,10 +1380,14 @@ export function useWhiteboard() {
     // pick-file flows
     insertImage,
     openBoard,
+    openBoardAt,
     newBoard,
+    newBoardIn,
+    openBoardIn,
     addSpace,
     // views & journeys
     saveView,
+    deleteView,
     addJourneyStep,
     resolveView,
     playJourney,

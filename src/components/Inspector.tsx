@@ -166,6 +166,26 @@ function Inspector() {
               <input type="number" value={Math.round(sel.h)} onChange={(e) => wb.patchSel({ h: +e.target.value })} style={inp} />
             </Field>
           </div>
+          <Field label="Rotation">
+            {/* The same transform the rotate handle drags (R3-607): one action,
+                two triggers — the field and the handle both write `rot`. */}
+            <input
+              type="number"
+              aria-label="Rotation in degrees"
+              value={Math.round(sel.rot || 0)}
+              onChange={(e) => wb.patchSel({ rot: +e.target.value })}
+              style={inp}
+            />
+          </Field>
+          <button
+            onClick={wb.beginConnect}
+            disabled={selection.length !== 1}
+            title={selection.length !== 1 ? 'Connect needs exactly one object selected' : 'Arrows pick the target · Enter connects · Escape cancels'}
+            style={selection.length !== 1 ? { ...btnGhost, opacity: 0.55, cursor: 'default' } : btnGhost}
+          >
+            <Icon name="refresh" size={14} strokeWidth={1.75} />
+            Connect from here…
+          </button>
           <div>
             <div style={fl}>Stacking</div>
             <div style={{ display: 'flex', gap: 6, marginTop: 7 }}>

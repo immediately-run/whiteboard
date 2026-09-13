@@ -74,14 +74,50 @@ function Canvas() {
     })
     .sort((a, b) => (a.z || 0) - (b.z || 0));
 
+  // The roving tab stop (R3-607): the selected object, else the first visible
+  // one — exactly one object on the canvas is ever tabbable.
+  const tabStopId = mode === 'edit' ? (selection[0] ?? visible.find((o) => !o.hidden)?.id ?? null) : null;
+
+  // The surface funnels Tab INTO the roving stop (R3-607) — a funnel, never a
+  // trap (WCAG 2.1.2): once focus is ON the stop, Tab is released to leave the
+  // canvas naturally, and Shift+Tab is never intercepted at all.
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key !== 'Tab' || e.shiftKey || mode !== 'edit' || !tabStopId) return;
+    const t = e.target as HTMLElement | null;
+    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+    if (t && t.getAttribute?.('data-obj-id') === tabStopId) return; // already on the stop — let Tab out
+    const stop = e.currentTarget.querySelector(`[data-obj-id="${tabStopId}"][tabindex="0"]`) as HTMLElement | null;
+    if (stop) {
+      e.preventDefault();
+      stop.focus();
+    }
+  };
+
   return (
-    <div ref={wb.registerCanvas} style={canvasStyle} onPointerDown={(e) => wb.onCanvasDown(e)} onDoubleClick={(e) => wb.onCanvasDblClick(e)}>
+    <div
+      ref={wb.registerCanvas}
+      style={canvasStyle}
+      onKeyDown={onKeyDown}
+      onPointerDown={(e) => wb.onCanvasDown(e)}
+      onDoubleClick={(e) => wb.onCanvasDblClick(e)}
+    >
       <div style={{ position: 'absolute', inset: 0, background: 'var(--page-wash)', pointerEvents: 'none' }} />
       <Connections />
       <div style={worldStyle}>
         {visible.map((o) => (
           // Stable useCallbacks → the memoized ObjectFrame skips re-render on pan.
-          <ObjectFrame key={o.id} o={o} mode={mode} boardRoot={wb.boardRoot} objects={objects} onPointerDown={wb.objPointerDown} onHover={wb.setHover} />
+          <ObjectFrame
+            key={o.id}
+            o={o}
+            mode={mode}
+            boardRoot={wb.boardRoot}
+            objects={objects}
+            tabStop={o.id === tabStopId}
+            selected={selection.includes(o.id)}
+            onFocusObject={wb.select}
+            onPointerDown={wb.objPointerDown}
+            onHover={wb.setHover}
+          />
         ))}
       </div>
       <SelectionOverlay />

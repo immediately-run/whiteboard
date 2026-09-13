@@ -1,8 +1,10 @@
 // Journeys & views panel. Run mode: play a journey, jump to a saved view. Edit
 // mode adds list-based journey authoring (steps with missing-view warnings,
 // add-current-view) and "save view" — deliberately humble, no timeline UI
-// (spec §4.3, DESIGN_BRIEF §4).
+// (spec §4.3, DESIGN_BRIEF §4). Views carry their destroy (R3-607, R-IX-5): an
+// inline confirm on the row, the same surface that creates them.
 
+import { useState } from 'react';
 import { useWb } from '../hooks/useWhiteboardCtx';
 import Icon from './Icon';
 import { implausibleDuration } from '../lib/journey';
@@ -97,13 +99,58 @@ function JourneysPanel() {
           ) : null}
         </div>
         {views.map((v) => (
-          <button key={v.name} onClick={() => wb.flyTo(v, 800)} style={{ display: 'flex', alignItems: 'center', gap: 9, width: '100%', padding: '9px 11px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 9, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left' }}>
-            <Icon name="inbox" size={14} color="var(--ink-3)" strokeWidth={1.75} />
-            <span style={{ flex: 1, font: 'var(--body-sm)' }}>{v.name}</span>
-            <span style={{ font: 'var(--mono-xs)', color: 'var(--ink-3)' }}>{`${Math.round(v.zoom * 100)}%`}</span>
-          </button>
+          <ViewRow key={v.name} name={v.name} zoom={Math.round(v.zoom * 100)} />
         ))}
       </div>
+    </div>
+  );
+}
+
+/** One view row: jump to it, and (edit mode) remove it with an inline confirm —
+ *  the LinkedIdentitiesCard shape: the affordance turns into its own
+ *  confirmation rather than a dialog for a one-word decision. */
+function ViewRow({ name, zoom }: { name: string; zoom: number }) {
+  const wb = useWb();
+  const edit = wb.state.mode === 'edit';
+  const [confirming, setConfirming] = useState(false);
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <button
+        onClick={() => {
+          setConfirming(false);
+          const v = wb.state.views.find((x) => x.name === name);
+          if (v) wb.flyTo(v, 800);
+        }}
+        style={{ display: 'flex', alignItems: 'center', gap: 9, flex: 1, minWidth: 0, padding: '9px 11px', background: 'var(--bg)', border: '1px solid var(--line)', borderRadius: 9, color: 'var(--ink)', cursor: 'pointer', textAlign: 'left' }}
+      >
+        <Icon name="inbox" size={14} color="var(--ink-3)" strokeWidth={1.75} />
+        <span style={{ flex: 1, font: 'var(--body-sm)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+        <span style={{ font: 'var(--mono-xs)', color: 'var(--ink-3)' }}>{`${zoom}%`}</span>
+      </button>
+      {edit ? (
+        confirming ? (
+          <span style={{ display: 'flex', gap: 4, flex: 'none' }}>
+            <button
+              onClick={() => {
+                setConfirming(false);
+                wb.deleteView(name);
+              }}
+              aria-label={`Confirm removing view ${name}`}
+              style={{ ...miniBtn, color: '#e07078', borderColor: 'color-mix(in oklab, #e0484f 35%, var(--line))' }}
+            >
+              <Icon name="trash" size={13} strokeWidth={2} />
+              Remove
+            </button>
+            <button onClick={() => setConfirming(false)} style={miniBtn}>
+              Keep
+            </button>
+          </span>
+        ) : (
+          <button onClick={() => setConfirming(true)} aria-label={`Remove view ${name}`} style={{ ...miniBtn, padding: '6px 8px' }}>
+            <Icon name="trash" size={13} strokeWidth={1.75} />
+          </button>
+        )
+      ) : null}
     </div>
   );
 }

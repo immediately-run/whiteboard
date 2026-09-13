@@ -27,7 +27,7 @@ const ANCHOR_PTS: [string, number, number][] = [
 
 function SelectionOverlay() {
   const wb = useWb();
-  const { objects, selection, marquee, hover, mode, panning, connectPreview } = wb.state;
+  const { objects, selection, marquee, hover, mode, panning, connectPreview, connectFrom, connectCursor } = wb.state;
   const mobile = wb.isMobile();
   if (mode !== 'edit') return null;
 
@@ -136,6 +136,38 @@ function SelectionOverlay() {
               }}
             />
           ))}
+        </div>,
+      );
+    }
+  }
+
+  // The keyboard-connect cursor (R3-607): a dashed ring on the object arrows
+  // have walked to, and a hint line naming the mode — an armed keyboard mode
+  // must be visible, never a silent state change.
+  if (connectFrom) {
+    const src = byId[connectFrom];
+    if (src) {
+      const [sx, sy] = wb.project(src.x, src.y);
+      overlays.push(
+        <div
+          key={`cfrom${connectFrom}`}
+          style={{ position: 'absolute', left: sx, top: sy, width: src.w * wb.state.cam.zoom, height: src.h * wb.state.cam.zoom, transform: `rotate(${src.rot}deg)`, pointerEvents: 'none', border: '1.5px dashed var(--accent-violet)', borderRadius: 8 }}
+        >
+          <div style={{ position: 'absolute', top: -26, left: 0, whiteSpace: 'nowrap', font: 'var(--mono-xs)', color: 'var(--accent-violet)' }}>
+            Connect from here · arrows pick · Enter connects · Esc cancels
+          </div>
+        </div>,
+      );
+    }
+    const cur = connectCursor ? byId[connectCursor] : null;
+    if (cur) {
+      const [cx, cy] = wb.project(cur.x, cur.y);
+      overlays.push(
+        <div
+          key={`ccur${cur.id}`}
+          style={{ position: 'absolute', left: cx, top: cy, width: cur.w * wb.state.cam.zoom, height: cur.h * wb.state.cam.zoom, transform: `rotate(${cur.rot}deg)`, pointerEvents: 'none', border: '2px solid var(--accent)', borderRadius: 10, boxShadow: '0 0 0 3px color-mix(in oklab, var(--accent) 35%, transparent)' }}
+        >
+          <div style={{ position: 'absolute', top: -24, right: 0, font: 'var(--mono-xs)', color: 'var(--ink)' }}>target</div>
         </div>,
       );
     }

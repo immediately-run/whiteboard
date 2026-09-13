@@ -2,6 +2,12 @@
 // translate/rotate/scale. Memoized and prop-driven (not context-driven) so that
 // during a pan — when only the camera changes — unchanged object frames skip
 // re-render and only the world transform + overlays update (spec §3.1 intent).
+//
+// In edit mode the frame is also the object's KEYBOARD presence (R3-607): a
+// roving tab stop (the selected object, else the first, is THE one tabbable
+// node), focusable with a name, and focusing it selects it — so the existing
+// arrow-nudge and Delete (document-level, unchanged) become reachable without
+// a pointer.
 
 import { memo } from 'react';
 import ObjectBody from './ObjectBody';
@@ -12,11 +18,20 @@ interface ObjectFrameProps {
   mode: Mode;
   boardRoot: string | null;
   objects: WObject[];
+  /** Roving-tabindex contract: exactly one object per canvas is the tab stop. */
+  tabStop: boolean;
+  /** Selection state for AT (4.1.2): the object is an interactive, selectable
+   *  widget, and its selected-ness must be exposed, not just drawn. */
+  selected: boolean;
+  /** Focus selects (edit mode): the keyboard path into the SAME selection the
+   *  pointer path writes. */
+  onFocusObject: (id: string) => void;
   onPointerDown: (id: string, e: React.PointerEvent) => void;
   onHover: (id: string | null) => void;
 }
 
-function ObjectFrame({ o, mode, boardRoot, objects, onPointerDown, onHover }: ObjectFrameProps) {
+function ObjectFrame({ o, mode, boardRoot, objects, tabStop, selected, onFocusObject, onPointerDown, onHover }: ObjectFrameProps) {
+  const editable = mode === 'edit' && !o.hidden;
   const style: React.CSSProperties = {
     position: 'absolute',
     left: o.x,
@@ -33,6 +48,20 @@ function ObjectFrame({ o, mode, boardRoot, objects, onPointerDown, onHover }: Ob
   return (
     <div
       style={style}
+      /* The roving stop: 0 on the one tabbable object, -1 on the rest, absent
+       * outside edit mode (run mode has no keyboard selection). */
+      tabIndex={editable ? (tabStop ? 0 : -1) : undefined}
+      data-obj-id={o.id}
+      /* The keyboard-presence shape (4.1.2): an interactive role carrying the
+       * selection state — AT hears that the object is selectable and whether
+       * it IS selected, matching what the roving tab stop and the outline
+       * already say to sighted users. */
+      role="option"
+      aria-label={o.title || o.kind}
+      aria-selected={editable ? selected : undefined}
+      onFocus={() => {
+        if (editable) onFocusObject(o.id);
+      }}
       onPointerDown={(e) => onPointerDown(o.id, e)}
       onMouseEnter={() => onHover(o.id)}
       onMouseLeave={() => onHover(null)}
