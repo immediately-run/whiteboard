@@ -13,6 +13,12 @@ import { useEffect, useRef } from 'react';
 const FOCUSABLE =
   'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
+/** Which arm is the freshest (R4): two overlays can be open at once (a quick
+ *  menu over a state screen). Each arm takes a number; only the newest one
+ *  acts on Escape — one key closes one dialog, never a nested pair at once —
+ *  and its cleanup owns the focus return. */
+let armedSeq = 0;
+
 /**
  * Wire the dialog contract to an overlay root. Attach the returned ref to the
  * element that bounds the dialog (the panel, not the backdrop — Tab should be
@@ -29,6 +35,7 @@ export function useOverlayDialog(open: boolean, onClose: () => void) {
 
   useEffect(() => {
     if (!open) return;
+    const token = ++armedSeq;
     // The trigger to return to: captured BEFORE focus moves in.
     const trigger = document.activeElement as HTMLElement | null;
     const root = rootRef.current;
@@ -38,6 +45,9 @@ export function useOverlayDialog(open: boolean, onClose: () => void) {
     (focusables[0] ?? root)?.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Only the freshest arm acts (see armedSeq): a stale arm that is still
+      // unwinding its cleanup must not swallow this key or race the return.
+      if (token !== armedSeq) return;
       if (e.key === 'Escape') {
         e.preventDefault();
         e.stopPropagation();

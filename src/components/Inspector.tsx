@@ -177,7 +177,12 @@ function Inspector() {
               style={inp}
             />
           </Field>
-          <button onClick={wb.beginConnect} style={btnGhost}>
+          <button
+            onClick={wb.beginConnect}
+            disabled={selection.length !== 1}
+            title={selection.length !== 1 ? 'Connect needs exactly one object selected' : 'Arrows pick the target · Enter connects · Escape cancels'}
+            style={selection.length !== 1 ? { ...btnGhost, opacity: 0.55, cursor: 'default' } : btnGhost}
+          >
             <Icon name="refresh" size={14} strokeWidth={1.75} />
             Connect from here…
           </button>

@@ -20,6 +20,9 @@ interface ObjectFrameProps {
   objects: WObject[];
   /** Roving-tabindex contract: exactly one object per canvas is the tab stop. */
   tabStop: boolean;
+  /** Selection state for AT (4.1.2): the object is an interactive, selectable
+   *  widget, and its selected-ness must be exposed, not just drawn. */
+  selected: boolean;
   /** Focus selects (edit mode): the keyboard path into the SAME selection the
    *  pointer path writes. */
   onFocusObject: (id: string) => void;
@@ -27,7 +30,7 @@ interface ObjectFrameProps {
   onHover: (id: string | null) => void;
 }
 
-function ObjectFrame({ o, mode, boardRoot, objects, tabStop, onFocusObject, onPointerDown, onHover }: ObjectFrameProps) {
+function ObjectFrame({ o, mode, boardRoot, objects, tabStop, selected, onFocusObject, onPointerDown, onHover }: ObjectFrameProps) {
   const editable = mode === 'edit' && !o.hidden;
   const style: React.CSSProperties = {
     position: 'absolute',
@@ -49,8 +52,13 @@ function ObjectFrame({ o, mode, boardRoot, objects, tabStop, onFocusObject, onPo
        * outside edit mode (run mode has no keyboard selection). */
       tabIndex={editable ? (tabStop ? 0 : -1) : undefined}
       data-obj-id={o.id}
-      role="group"
+      /* The keyboard-presence shape (4.1.2): an interactive role carrying the
+       * selection state — AT hears that the object is selectable and whether
+       * it IS selected, matching what the roving tab stop and the outline
+       * already say to sighted users. */
+      role="option"
       aria-label={o.title || o.kind}
+      aria-selected={editable ? selected : undefined}
       onFocus={() => {
         if (editable) onFocusObject(o.id);
       }}

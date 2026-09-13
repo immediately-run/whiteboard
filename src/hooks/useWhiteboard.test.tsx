@@ -112,6 +112,56 @@ describe('post-pick busy states (R3-607)', () => {
     expect(held.wb!.state.toasts.some((t) => t.text.includes('insert image'))).toBe(true);
   });
 
+  it('the keyboard connect path — arm, walk the cursor (with wrap), commit through the real addConnection, cancel', async () => {
+    // No board target needed: the connect actions work in memory (the seed
+    // board supplies the objects); commitSave's no-board path just toasts.
+    render(<Harness />);
+    const wb = held.wb!;
+    const first = wb.state.objects[0];
+    await act(async () => {
+      wb.select(first.id);
+    });
+    await act(async () => {
+      wb.beginConnect();
+    });
+    // Armed: the source is the selection; the cursor starts on another object.
+    const s1 = held.wb!.state;
+    expect(s1.connectFrom).toBe(first.id);
+    expect(s1.connectCursor).not.toBe(first.id);
+    expect(s1.connectCursor).toBeTruthy();
+    // The walk: arrows move the cursor through the other objects, wrapping at
+    // both ends, never landing on the source.
+    const others = s1.objects.filter((o) => o.id !== first.id).length;
+    await act(async () => {
+      for (let i = 0; i < others + 2; i += 1) wb.moveConnectCursor(1);
+    });
+    expect(held.wb!.state.connectCursor).not.toBe(first.id);
+    await act(async () => {
+      wb.moveConnectCursor(-1);
+    });
+    expect(held.wb!.state.connectCursor).not.toBe(first.id);
+    // Commit: the edge arrives through the same store action the drag calls.
+    const target = held.wb!.state.connectCursor!;
+    const before = held.wb!.state.objects.find((o) => o.id === first.id)!.connections.length;
+    await act(async () => {
+      wb.endConnect(true);
+    });
+    const src = held.wb!.state.objects.find((o) => o.id === first.id)!;
+    expect(src.connections.some((c) => c.to === target)).toBe(true);
+    expect(src.connections.length).toBe(before + 1);
+    expect(held.wb!.state.connectFrom).toBeNull();
+    // Cancel adds nothing: arm again on the (still-selected) source and Escape.
+    await act(async () => {
+      wb.beginConnect();
+    });
+    await act(async () => {
+      wb.endConnect(false);
+    });
+    const after = held.wb!.state.objects.find((o) => o.id === first.id)!.connections.length;
+    expect(after).toBe(before + 1);
+    expect(held.wb!.state.connectFrom).toBeNull();
+  });
+
   it('deleteView on a read-only board refuses BEFORE dropping — the row survives', async () => {
     render(<Harness />);
     await act(async () => {

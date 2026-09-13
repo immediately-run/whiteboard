@@ -113,6 +113,7 @@ function Canvas() {
             boardRoot={wb.boardRoot}
             objects={objects}
             tabStop={o.id === tabStopId}
+            selected={selection.includes(o.id)}
             onFocusObject={wb.select}
             onPointerDown={wb.objPointerDown}
             onHover={wb.setHover}

@@ -53,7 +53,7 @@ function StateScreens() {
     onClick: () => void = close,
     busyFlow?: keyof typeof BUSY_LABELS,
   ) => {
-    const busy = busyFlow !== undefined && wb.state.busy !== null;
+    const busy = busyFlow !== undefined && wb.state.busy === busyFlow;
     return (
       <button
         key={key}
@@ -68,7 +68,7 @@ function StateScreens() {
     );
   };
   const secondary = (key: string, label: string, onClick: () => void = close, busyFlow?: keyof typeof BUSY_LABELS) => {
-    const busy = busyFlow !== undefined && wb.state.busy !== null;
+    const busy = busyFlow !== undefined && wb.state.busy === busyFlow;
     return (
       <button key={key} aria-busy={busy || undefined} disabled={busy} onClick={onClick} style={{ padding: '12px 20px', background: 'var(--bg)', border: '1px solid var(--line-2)', borderRadius: 'var(--r-pill)', color: 'var(--ink)', font: 'var(--label)', cursor: busy ? 'default' : 'pointer', whiteSpace: 'nowrap' }}>
         {busy ? BUSY_LABELS[busyFlow!] : label}

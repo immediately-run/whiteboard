@@ -1371,6 +1371,7 @@ export function useWhiteboard() {
     // keyboard connect (the non-drag path)
     beginConnect,
     endConnect,
+    moveConnectCursor,
     // mutations
     patchSel,
     patchObject,
