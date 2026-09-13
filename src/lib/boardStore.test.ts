@@ -25,6 +25,9 @@ vi.mock('fs', () => ({
       writeFile: async (p: string, data: string | Uint8Array) => {
         files.set(p, data);
       },
+      rm: async (p: string) => {
+        files.delete(p);
+      },
     },
   },
 }));
@@ -38,7 +41,7 @@ vi.mock('@immediately-run/sdk/mounts', () => ({
   }),
 }));
 
-import { loadBoard, loadManifest, writeNewBoard } from './boardStore';
+import { loadBoard, loadManifest, writeNewBoard, saveView, removeView } from './boardStore';
 import type { BoardTarget } from './boardStore';
 
 const target: BoardTarget = { root: '/board', mode: 'rw' };
@@ -91,5 +94,20 @@ describe('board manifest (R3-401)', () => {
   it('loadManifest is resilient to a missing file', async () => {
     const m = await loadManifest(target);
     expect(m).toEqual({});
+  });
+});
+describe('views gain a destroy (R3-607, R-IX-5)', () => {
+  it('an add-then-deleteView round-trip: the persisted board no longer lists the view', async () => {
+    const view = { name: 'overview', cx: 10, cy: 20, zoom: 0.8 };
+    await saveView(target, view);
+    let board = await loadBoard(target);
+    expect(board.views.map((v) => v.name)).toEqual(['overview']);
+    await removeView(target, 'overview');
+    board = await loadBoard(target);
+    expect(board.views).toEqual([]);
+  });
+
+  it('removing a view that is already gone resolves — never a failure to field', async () => {
+    await expect(removeView(target, 'never-saved')).resolves.not.toThrow();
   });
 });

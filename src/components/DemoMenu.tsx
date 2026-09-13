@@ -5,12 +5,17 @@
 // wired; it is a dev affordance, not host chrome.
 
 import { useWb } from '../hooks/useWhiteboardCtx';
+import { useOverlayDialog } from '../hooks/useOverlayDialog';
 import Icon from './Icon';
 import type { ScreenKind } from '../lib/types';
 
 function DemoMenu() {
   const wb = useWb();
   const { demoMenuOpen } = wb.state;
+  const closeMenu = () => wb.toggleDemoMenu();
+  // The dialog contract (R3-607): focus in, Tab trapped, Escape, focus return —
+  // armed while the dropdown is open.
+  const dialogRef = useOverlayDialog(demoMenuOpen, closeMenu);
 
   const items: { label: string; run: () => void }[] = [
     { label: 'Board chooser', run: () => setScreen('chooser') },
@@ -30,7 +35,7 @@ function DemoMenu() {
   return (
     <div style={{ position: 'absolute', bottom: 16, left: 16, zIndex: 45 }}>
       {demoMenuOpen ? (
-        <div style={{ position: 'absolute', bottom: 46, left: 0, width: 230, padding: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-pop)' }}>
+        <div ref={dialogRef} tabIndex={-1} style={{ position: 'absolute', bottom: 46, left: 0, width: 230, padding: 6, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 14, boxShadow: 'var(--shadow-pop)' }}>
           <div style={{ font: 'var(--mono-xs)', letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--ink-3)', padding: '4px 10px 6px' }}>States &amp; scenarios</div>
           {items.map((d) => (
             <button key={d.label} onClick={d.run} style={{ display: 'block', width: '100%', padding: '8px 10px', background: 'none', border: 'none', borderRadius: 8, color: 'var(--ink)', font: 'var(--body-sm)', cursor: 'pointer', textAlign: 'left' }}>

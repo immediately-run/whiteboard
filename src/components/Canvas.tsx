@@ -74,6 +74,10 @@ function Canvas() {
     })
     .sort((a, b) => (a.z || 0) - (b.z || 0));
 
+  // The roving tab stop (R3-607): the selected object, else the first visible
+  // one — exactly one object on the canvas is ever tabbable.
+  const tabStopId = mode === 'edit' ? (selection[0] ?? visible.find((o) => !o.hidden)?.id ?? null) : null;
+
   return (
     <div ref={wb.registerCanvas} style={canvasStyle} onPointerDown={(e) => wb.onCanvasDown(e)} onDoubleClick={(e) => wb.onCanvasDblClick(e)}>
       <div style={{ position: 'absolute', inset: 0, background: 'var(--page-wash)', pointerEvents: 'none' }} />
@@ -81,7 +85,17 @@ function Canvas() {
       <div style={worldStyle}>
         {visible.map((o) => (
           // Stable useCallbacks → the memoized ObjectFrame skips re-render on pan.
-          <ObjectFrame key={o.id} o={o} mode={mode} boardRoot={wb.boardRoot} objects={objects} onPointerDown={wb.objPointerDown} onHover={wb.setHover} />
+          <ObjectFrame
+            key={o.id}
+            o={o}
+            mode={mode}
+            boardRoot={wb.boardRoot}
+            objects={objects}
+            tabStop={o.id === tabStopId}
+            onFocusObject={wb.select}
+            onPointerDown={wb.objPointerDown}
+            onHover={wb.setHover}
+          />
         ))}
       </div>
       <SelectionOverlay />

@@ -5,12 +5,17 @@
 // so); this only frames the app-side states around it.
 
 import { useWb } from '../hooks/useWhiteboardCtx';
+import { useOverlayDialog } from '../hooks/useOverlayDialog';
 import BoardChooser from './BoardChooser';
 import Icon from './Icon';
 
 function StateScreens() {
   const wb = useWb();
   const screen = wb.state.screen;
+  const closeScreen = () => wb.setScreen(null);
+  // The dialog contract (R3-607): focus in, Tab trapped, Escape, focus return.
+  // The chooser screen delegates to BoardChooser, which carries its own.
+  const dialogRef = useOverlayDialog(!!screen && screen !== 'chooser', closeScreen);
   if (!screen) return null;
   if (screen === 'chooser') return <BoardChooser />;
 
@@ -85,10 +90,10 @@ function StateScreens() {
 
   return (
     <div style={{ position: 'absolute', inset: 0, zIndex: 70, background: 'color-mix(in oklab, var(--bg) 92%, transparent)', backdropFilter: 'blur(8px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
-      <button onClick={close} style={{ position: 'absolute', top: 18, right: 18, display: 'flex', padding: 9, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '50%', color: 'var(--ink-2)', cursor: 'pointer' }}>
+      <button onClick={closeScreen} aria-label="Close" style={{ position: 'absolute', top: 18, right: 18, display: 'flex', padding: 9, background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '50%', color: 'var(--ink-2)', cursor: 'pointer' }}>
         <Icon name="x" size={18} />
       </button>
-      <div style={{ width: 'min(460px, 94vw)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
+      <div ref={dialogRef} tabIndex={-1} style={{ width: 'min(460px, 94vw)', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 16 }}>
         {c.art}
         <div style={{ font: '800 30px/1 var(--disp)', letterSpacing: '-.03em' }}>{c.title}</div>
         <div style={{ font: 'var(--body)', color: 'var(--ink-2)', maxWidth: 380, textWrap: 'pretty' }}>{c.body}</div>

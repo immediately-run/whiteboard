@@ -184,6 +184,13 @@ export async function saveView(t: BoardTarget, v: View): Promise<void> {
   await fs.promises.writeFile(join(t.root, VIEWS, `${v.name}.md`), serializeView(v), 'utf8');
 }
 
+/** Remove a view's file (R3-607: a thing creatable on the surface has a destroy
+ *  on it). `force` so removing an already-absent file is a no-op, never a
+ *  failure the caller has to field. */
+export async function removeView(t: BoardTarget, name: string): Promise<void> {
+  await fs.promises.rm(join(t.root, VIEWS, `${name}.md`), { force: true });
+}
+
 export async function saveJourney(t: BoardTarget, j: Journey): Promise<void> {
   await fs.promises.mkdir(join(t.root, JOURNEYS), { recursive: true });
   await fs.promises.writeFile(join(t.root, JOURNEYS, `${j.id}.md`), serializeJourney(j), 'utf8');
