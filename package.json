@@ -14,24 +14,12 @@
   "immediately.run": {
     "requireLatest": "optimistic",
     "invokes": [
-      {
-        "task": "pick-file",
-        "version": "^1"
-      },
-      {
-        "task": "share-space",
-        "version": "^1"
-      },
-      {
-        "task": "edit-file",
-        "version": "^1"
-      }
+      { "task": "pick-file", "version": "^1" },
+      { "task": "share-space", "version": "^1" },
+      { "task": "edit-file", "version": "^1" }
     ],
     "provides": [
-      {
-        "task": "open-project",
-        "version": "1.0"
-      }
+      { "task": "open-project", "version": "1.0" }
     ]
   },
   "dependencies": {
