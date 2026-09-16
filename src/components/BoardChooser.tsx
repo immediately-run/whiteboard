@@ -68,7 +68,7 @@ function BoardChooser() {
     return () => {
       cancelled = true;
     };
-  }, [wb.state.mounts]);
+  }, []);
 
   const busy = wb.state.busy;
   const busyLabel = busy ? BUSY_LABELS[busy] : null;
