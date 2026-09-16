@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "lint": "eslint . --max-warnings 0",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -14,12 +14,24 @@
   "immediately.run": {
     "requireLatest": "optimistic",
     "invokes": [
-      { "task": "pick-file", "version": "^1" },
-      { "task": "share-space", "version": "^1" },
-      { "task": "edit-file", "version": "^1" }
+      {
+        "task": "pick-file",
+        "version": "^1"
+      },
+      {
+        "task": "share-space",
+        "version": "^1"
+      },
+      {
+        "task": "edit-file",
+        "version": "^1"
+      }
     ],
     "provides": [
-      { "task": "open-project", "version": "1.0" }
+      {
+        "task": "open-project",
+        "version": "1.0"
+      }
     ]
   },
   "dependencies": {
